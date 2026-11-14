@@ -1,0 +1,480 @@
+# Sound effects synthesized at startup (each rendered to a WAV in the temp
+# directory, loaded into its own SDL::Sound stream, then deleted), the
+# rotor drone on synth channel 0 while flying, and a four-channel chip
+# tune on all channels for the title and results screens.
+
+class Sfx
+  RATE = 22050
+
+  def initialize(name)
+    @name = name
+    @samples = Array.new(0, 0.0)
+  end
+
+  attr_reader :samples, :name
+
+  def length_ms(ms)
+    @samples = Array.new((ms * RATE / 1000.0).to_i, 0.0)
+  end
+
+  # Decaying tone with optional pitch sweep. wave: 0 sine, 1 square, 2 saw, 3 triangle.
+  def tone(start_ms, dur_ms, f0, f1, amp, decay, wave)
+    i0 = (start_ms * RATE / 1000.0).to_i
+    n = (dur_ms * RATE / 1000.0).to_i
+    phase = 0.0
+    i = 0
+    while i < n
+      t = i.to_f / n
+      f = f0 + (f1 - f0) * t
+      phase += f / RATE
+      env = Math.exp(0.0 - decay * t) * (1.0 - t * 0.15)
+      env *= (i / 40.0) if i < 40
+      p = phase - phase.floor
+      if wave == 0
+        s = Math.sin(p * Math::PI * 2.0)
+      elsif wave == 1
+        s = p < 0.5 ? 1.0 : -1.0
+      elsif wave == 2
+        s = p * 2.0 - 1.0
+      else
+        s = p < 0.5 ? p * 4.0 - 1.0 : 3.0 - p * 4.0
+      end
+      idx = i0 + i
+      @samples[idx] = @samples[idx] + s * amp * env if idx < @samples.length
+      i += 1
+    end
+  end
+
+  # Decaying white-noise burst; `lp` (0..1) low-passes it for duller thuds.
+  def noise(start_ms, dur_ms, amp, decay, lp, seed)
+    rng = Random.new(seed)
+    i0 = (start_ms * RATE / 1000.0).to_i
+    n = (dur_ms * RATE / 1000.0).to_i
+    prev = 0.0
+    i = 0
+    while i < n
+      t = i.to_f / n
+      env = Math.exp(0.0 - decay * t)
+      w = rng.rand * 2.0 - 1.0
+      prev = prev + (w - prev) * (1.0 - lp)
+      idx = i0 + i
+      @samples[idx] = @samples[idx] + prev * amp * env if idx < @samples.length
+      i += 1
+    end
+  end
+
+  # Noise whose brightness sweeps, for wing beats and whooshes.
+  def swoosh(start_ms, dur_ms, amp, lp0, lp1, seed)
+    rng = Random.new(seed)
+    i0 = (start_ms * RATE / 1000.0).to_i
+    n = (dur_ms * RATE / 1000.0).to_i
+    prev = 0.0
+    i = 0
+    while i < n
+      t = i.to_f / n
+      env = Math.sin(t * Math::PI)
+      lp = lp0 + (lp1 - lp0) * t
+      w = rng.rand * 2.0 - 1.0
+      prev = prev + (w - prev) * (1.0 - lp)
+      idx = i0 + i
+      @samples[idx] = @samples[idx] + prev * amp * env if idx < @samples.length
+      i += 1
+    end
+  end
+
+  def write(path)
+    n = @samples.length
+    buf = IO::Buffer.new(44 + n * 2)
+    buf.set_string("RIFF", 0)
+    buf.set_value(:u32, 4, 36 + n * 2)
+    buf.set_string("WAVE", 8)
+    buf.set_string("fmt ", 12)
+    buf.set_value(:u32, 16, 16)
+    buf.set_value(:u16, 20, 1)
+    buf.set_value(:u16, 22, 1)
+    buf.set_value(:u32, 24, RATE)
+    buf.set_value(:u32, 28, RATE * 2)
+    buf.set_value(:u16, 32, 2)
+    buf.set_value(:u16, 34, 16)
+    buf.set_string("data", 36)
+    buf.set_value(:u32, 40, n * 2)
+    i = 0
+    while i < n
+      v = @samples[i]
+      v = 1.0 if v > 1.0
+      v = -1.0 if v < -1.0
+      buf.set_value(:s16, 44 + i * 2, (v * 32000.0).to_i)
+      i += 1
+    end
+    File.open(path, "wb") { |f| buf.write(f) }
+  end
+end
+
+class SoundBank
+  ROTOR_CH = 0
+
+  def initialize
+    @sounds = {}
+    @last_played = {}
+    @min_gap = {}
+    @dir = ENV["TMPDIR"] || "/tmp"
+    @rotor_on = false
+    @rotor_freq = 40.0
+    build_all
+  end
+
+  def add(sfx, min_gap_ms)
+    path = "#{@dir}/capricopter_#{sfx.name}.wav"
+    sfx.write(path)
+    @sounds[sfx.name] = SDL::Sound.new(path)
+    @min_gap[sfx.name] = min_gap_ms
+    @last_played[sfx.name] = -100000.0
+    File.delete(path)
+  end
+
+  def play(name, now_ms)
+    s = @sounds[name]
+    return if s == nil
+    return if now_ms - @last_played[name] < @min_gap[name]
+    @last_played[name] = now_ms
+    s.play
+  end
+
+  # The rotor: a low tilted saw whose pitch follows the throttle and whose
+  # volume pulses at blade speed. `level` 0 = idling on the ground, 1 =
+  # full thrust; `pump` says whether this call should advance the synth.
+  def rotor(level, dt_ms, t_ms, pump)
+    target = 34.0 + level * 22.0
+    @rotor_freq = @rotor_freq + (target - @rotor_freq) * 0.08
+    chop = 0.5 + 0.5 * Math.sin(t_ms * (0.012 + level * 0.01))
+    vol = (0.07 + level * 0.09) * (0.55 + 0.45 * chop)
+    if !@rotor_on
+      SDL::Synth.set_envelope(ROTOR_CH, 80.0, 0.0, 1.0, 160.0)
+      SDL::Synth.note_on(ROTOR_CH, @rotor_freq, SDL::Synth::TILTED_SAW, vol)
+      @rotor_on = true
+    else
+      SDL::Synth.set_freq(ROTOR_CH, @rotor_freq)
+      SDL::Synth.set_volume(ROTOR_CH, vol)
+    end
+    SDL::Synth.pump(dt_ms) if pump
+  end
+
+  def rotor_off(dt_ms, pump)
+    if @rotor_on
+      SDL::Synth.note_off(ROTOR_CH)
+      @rotor_on = false
+    end
+    SDL::Synth.pump(dt_ms) if pump
+  end
+
+  def rotor_on?
+    @rotor_on
+  end
+
+  def close
+    @sounds.each_value { |s| s.close }
+  end
+
+  def sfx(name, ms)
+    s = Sfx.new(name)
+    s.length_ms(ms)
+    s
+  end
+
+  # A goat's "meh-eh-eh": short saw pulses whose pitch wobbles, with a
+  # touch of breath noise.
+  def bleat(s, start_ms, dur_ms, f, amp)
+    n = (dur_ms / 36.0).to_i
+    i = 0
+    while i < n
+      k = i.to_f / n
+      wob = i % 2 == 0 ? 1.0 : 0.9
+      s.tone(start_ms + i * 36.0, 44.0, f * wob * (1.0 - k * 0.15), f * wob * (1.0 - k * 0.18), amp * (1.0 - k * 0.5), 1.0, 2)
+      i += 1
+    end
+    s.noise(start_ms, dur_ms, amp * 0.25, 2.0, 0.5, 17)
+  end
+
+  def build_all
+    s = sfx(:shoot, 140)
+    s.tone(0.0, 110.0, 1400.0, 500.0, 0.28, 7.0, 1)
+    s.noise(0.0, 40.0, 0.25, 6.0, 0.2, 1)
+    add(s, 60.0)
+
+    s = sfx(:bomb_drop, 500)
+    s.tone(0.0, 480.0, 900.0, 300.0, 0.18, 2.0, 0)
+    add(s, 150.0)
+
+    s = sfx(:explode, 900)
+    s.noise(0.0, 800.0, 0.8, 3.0, 0.85, 2)
+    s.tone(0.0, 500.0, 120.0, 30.0, 0.55, 4.0, 0)
+    add(s, 80.0)
+
+    s = sfx(:explode_small, 450)
+    s.noise(0.0, 380.0, 0.6, 4.0, 0.7, 3)
+    s.tone(0.0, 250.0, 300.0, 60.0, 0.4, 6.0, 0)
+    add(s, 60.0)
+
+    s = sfx(:hit, 120)
+    s.noise(0.0, 60.0, 0.4, 6.0, 0.5, 4)
+    s.tone(0.0, 100.0, 420.0, 240.0, 0.3, 9.0, 3)
+    add(s, 40.0)
+
+    s = sfx(:land, 300)
+    s.noise(0.0, 160.0, 0.5, 4.0, 0.85, 5)
+    s.tone(0.0, 220.0, 110.0, 45.0, 0.45, 7.0, 0)
+    add(s, 200.0)
+
+    s = sfx(:takeoff, 400)
+    s.swoosh(0.0, 380.0, 0.35, 0.9, 0.5, 6)
+    add(s, 200.0)
+
+    s = sfx(:turn, 120)
+    s.swoosh(0.0, 110.0, 0.25, 0.6, 0.8, 7)
+    add(s, 80.0)
+
+    s = sfx(:board, 260)
+    bleat(s, 0.0, 240.0, 620.0, 0.16)
+    add(s, 90.0)
+
+    s = sfx(:exit, 200)
+    bleat(s, 0.0, 180.0, 760.0, 0.12)
+    add(s, 90.0)
+
+    s = sfx(:saved, 260)
+    s.tone(0.0, 100.0, 1046.0, 1046.0, 0.25, 4.0, 1)
+    s.tone(90.0, 160.0, 1568.0, 1568.0, 0.28, 4.0, 1)
+    add(s, 80.0)
+
+    s = sfx(:full, 600)
+    s.tone(0.0, 120.0, 659.0, 659.0, 0.3, 3.0, 1)
+    s.tone(110.0, 120.0, 784.0, 784.0, 0.3, 3.0, 1)
+    s.tone(220.0, 120.0, 988.0, 988.0, 0.3, 3.0, 1)
+    s.tone(330.0, 260.0, 1318.0, 1318.0, 0.35, 3.0, 1)
+    add(s, 300.0)
+
+    s = sfx(:fanfare, 1400)
+    s.tone(0.0, 160.0, 523.0, 523.0, 0.35, 3.0, 1)
+    s.tone(150.0, 160.0, 659.0, 659.0, 0.35, 3.0, 1)
+    s.tone(300.0, 160.0, 784.0, 784.0, 0.35, 3.0, 1)
+    s.tone(450.0, 160.0, 1046.0, 1046.0, 0.35, 3.0, 1)
+    s.tone(620.0, 700.0, 1318.0, 1318.0, 0.4, 2.0, 1)
+    s.tone(620.0, 700.0, 1568.0, 1568.0, 0.25, 2.0, 0)
+    add(s, 500.0)
+
+    s = sfx(:crash, 1600)
+    s.noise(0.0, 1400.0, 0.9, 2.5, 0.85, 8)
+    s.tone(0.0, 700.0, 140.0, 25.0, 0.6, 3.0, 0)
+    s.tone(200.0, 900.0, 220.0, 40.0, 0.3, 3.0, 2)
+    add(s, 500.0)
+
+    s = sfx(:crush, 300)
+    s.noise(0.0, 200.0, 0.5, 5.0, 0.9, 9)
+    s.tone(0.0, 250.0, 90.0, 40.0, 0.4, 6.0, 0)
+    add(s, 150.0)
+
+    # A startled goat: a high bleat that falls away as it tumbles.
+    s = sfx(:goat_hit, 420)
+    bleat(s, 0.0, 380.0, 900.0, 0.2)
+    s.tone(0.0, 400.0, 900.0, 300.0, 0.08, 3.0, 3)
+    add(s, 80.0)
+
+    # A yeti heaves a snowball: a grunt and a whoosh.
+    s = sfx(:yeti_fire, 420)
+    s.tone(0.0, 220.0, 110.0, 70.0, 0.35, 3.0, 2)
+    s.noise(0.0, 200.0, 0.25, 4.0, 0.8, 10)
+    s.swoosh(120.0, 280.0, 0.3, 0.9, 0.6, 13)
+    add(s, 120.0)
+
+    s = sfx(:yeti_off, 900)
+    s.tone(0.0, 700.0, 180.0, 80.0, 0.35, 2.0, 2)
+    s.tone(0.0, 700.0, 183.0, 82.0, 0.25, 2.0, 2)
+    s.noise(0.0, 500.0, 0.3, 3.0, 0.85, 14)
+    add(s, 300.0)
+
+    # Snow hitting snow.
+    s = sfx(:splat, 260)
+    s.noise(0.0, 220.0, 0.5, 6.0, 0.75, 15)
+    add(s, 60.0)
+
+    # Wing beats as an eagle sweeps in.
+    s = sfx(:eagle, 1200)
+    i = 0
+    while i < 5
+      s.swoosh(i * 220.0, 200.0, 0.35, 0.85, 0.6, 11 + i)
+      i += 1
+    end
+    add(s, 800.0)
+
+    # The eagle stoops: a falling screech.
+    s = sfx(:screech, 700)
+    s.tone(0.0, 650.0, 2300.0, 1500.0, 0.12, 1.5, 2)
+    s.tone(0.0, 650.0, 2340.0, 1530.0, 0.1, 1.5, 3)
+    add(s, 300.0)
+
+    # A bird driven off by the cannon.
+    s = sfx(:squawk, 300)
+    s.tone(0.0, 110.0, 900.0, 600.0, 0.2, 2.0, 2)
+    s.tone(140.0, 140.0, 850.0, 520.0, 0.2, 2.0, 2)
+    s.noise(0.0, 120.0, 0.2, 5.0, 0.4, 16)
+    add(s, 80.0)
+
+    # Ravens: caw caw.
+    s = sfx(:raven, 700)
+    s.tone(0.0, 180.0, 520.0, 420.0, 0.22, 1.5, 2)
+    s.tone(0.0, 180.0, 1040.0, 840.0, 0.06, 1.5, 1)
+    s.tone(300.0, 220.0, 500.0, 380.0, 0.22, 1.5, 2)
+    s.tone(300.0, 220.0, 1000.0, 760.0, 0.06, 1.5, 1)
+    add(s, 500.0)
+
+    s = sfx(:extra_life, 700)
+    s.tone(0.0, 120.0, 784.0, 784.0, 0.3, 3.0, 1)
+    s.tone(110.0, 120.0, 988.0, 988.0, 0.3, 3.0, 1)
+    s.tone(220.0, 120.0, 1175.0, 1175.0, 0.3, 3.0, 1)
+    s.tone(330.0, 350.0, 1568.0, 1568.0, 0.35, 3.0, 1)
+    add(s, 300.0)
+
+    s = sfx(:mission, 2000)
+    s.tone(0.0, 180.0, 392.0, 392.0, 0.35, 3.0, 1)
+    s.tone(170.0, 180.0, 523.0, 523.0, 0.35, 3.0, 1)
+    s.tone(340.0, 180.0, 659.0, 659.0, 0.35, 3.0, 1)
+    s.tone(510.0, 180.0, 784.0, 784.0, 0.35, 3.0, 1)
+    s.tone(680.0, 180.0, 659.0, 659.0, 0.35, 3.0, 1)
+    s.tone(850.0, 1000.0, 1046.0, 1046.0, 0.4, 2.0, 1)
+    s.tone(850.0, 1000.0, 1318.0, 1318.0, 0.25, 2.0, 0)
+    add(s, 800.0)
+
+    s = sfx(:start, 900)
+    s.tone(0.0, 150.0, 392.0, 392.0, 0.3, 3.0, 1)
+    s.tone(140.0, 150.0, 523.0, 523.0, 0.3, 3.0, 1)
+    s.tone(280.0, 150.0, 659.0, 659.0, 0.3, 3.0, 1)
+    s.tone(420.0, 450.0, 784.0, 784.0, 0.35, 2.5, 1)
+    add(s, 300.0)
+
+    s = sfx(:menu, 60)
+    s.tone(0.0, 50.0, 900.0, 700.0, 0.3, 8.0, 1)
+    add(s, 30.0)
+
+    s = sfx(:game_over, 1600)
+    s.tone(0.0, 320.0, 523.0, 523.0, 0.35, 2.0, 2)
+    s.tone(300.0, 320.0, 466.0, 466.0, 0.35, 2.0, 2)
+    s.tone(600.0, 320.0, 392.0, 392.0, 0.35, 2.0, 2)
+    s.tone(900.0, 650.0, 262.0, 240.0, 0.4, 2.0, 2)
+    add(s, 1000.0)
+
+    s = sfx(:high_score, 1200)
+    s.tone(0.0, 150.0, 659.0, 659.0, 0.3, 3.0, 1)
+    s.tone(140.0, 150.0, 784.0, 784.0, 0.3, 3.0, 1)
+    s.tone(280.0, 150.0, 988.0, 988.0, 0.3, 3.0, 1)
+    s.tone(420.0, 700.0, 1318.0, 1318.0, 0.35, 2.0, 1)
+    s.tone(420.0, 700.0, 1568.0, 1568.0, 0.2, 2.0, 0)
+    add(s, 500.0)
+  end
+end
+
+# Four-channel looping chip tune for the title and results screens: a
+# march-like bass, a brass-ish pulse arpeggio, a lead and a snare hat.
+# Patterns are 64 sixteenth-note steps (four bars). 0 is a rest, -1 holds
+# the previous note, anything else is a MIDI note number.
+class Music
+  BPM = 120
+  STEP_MS = 60000.0 / BPM / 4.0
+
+  BASS = [
+    38, 0, 38, 0, 45, 0, 38, 0, 38, 0, 38, 0, 45, 0, 41, 0,
+    36, 0, 36, 0, 43, 0, 36, 0, 36, 0, 36, 0, 43, 0, 40, 0,
+    34, 0, 34, 0, 41, 0, 34, 0, 34, 0, 34, 0, 41, 0, 38, 0,
+    33, 0, 33, 0, 40, 0, 33, 0, 36, 0, 36, 0, 43, 0, 45, 0,
+  ]
+  ARP = [
+    62, 65, 69, 74, 62, 65, 69, 74, 62, 65, 69, 74, 62, 65, 69, 74,
+    60, 63, 67, 72, 60, 63, 67, 72, 60, 63, 67, 72, 60, 63, 67, 72,
+    58, 62, 65, 70, 58, 62, 65, 70, 58, 62, 65, 70, 58, 62, 65, 70,
+    57, 60, 64, 69, 57, 60, 64, 69, 60, 63, 67, 72, 62, 65, 69, 74,
+  ]
+  LEAD = [
+    74, -1, -1, -1, 77, -1, 74, -1, 69, -1, -1, -1, 0, 0, 72, -1,
+    72, -1, -1, -1, 75, -1, 72, -1, 67, -1, -1, -1, -1, -1, 0, 0,
+    70, -1, 74, -1, 77, -1, -1, -1, 82, -1, 81, -1, 77, -1, 0, 0,
+    76, -1, 72, -1, 69, -1, -1, -1, 72, -1, 75, -1, 77, -1, 0, 0,
+  ]
+  HAT = [
+    1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1,
+    1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 0,
+    1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 0, 0, 1, 0, 1, 1,
+    1, 0, 0, 0, 1, 0, 1, 0, 1, 0, 1, 0, 1, 1, 1, 1,
+  ]
+
+  def initialize
+    @enabled = true
+    @playing = false
+    @clock = 0.0
+    @step = -1
+  end
+
+  attr_reader :enabled
+
+  def toggle
+    @enabled = !@enabled
+    silence unless @enabled
+    @enabled
+  end
+
+  def freq(midi)
+    440.0 * (2.0 ** ((midi - 69) / 12.0))
+  end
+
+  def silence
+    if @playing
+      SDL::Synth.note_off(0)
+      SDL::Synth.note_off(1)
+      SDL::Synth.note_off(2)
+      SDL::Synth.note_off(3)
+      @playing = false
+    end
+  end
+
+  def playing?
+    @playing
+  end
+
+  # Advances the song; `want` says whether music should be sounding now.
+  # The caller pumps the synth (shared with the rotor) once per frame.
+  def update(dt_ms, want)
+    if !@enabled || !want
+      silence
+      return
+    end
+    if !@playing
+      SDL::Synth.set_envelope(0, 4.0, 60.0, 0.7, 40.0)
+      SDL::Synth.set_envelope(1, 2.0, 50.0, 0.4, 30.0)
+      SDL::Synth.set_envelope(2, 8.0, 80.0, 0.8, 90.0)
+      SDL::Synth.set_envelope(3, 1.0, 25.0, 0.0, 10.0)
+      @playing = true
+    end
+    @clock += dt_ms
+    step = (@clock / STEP_MS).floor % 64
+    if step != @step
+      @step = step
+      play_step(step)
+    end
+  end
+
+  def play_step(i)
+    n = BASS[i]
+    if n > 0
+      SDL::Synth.note_on(0, freq(n), SDL::Synth::TRIANGLE, 0.22)
+    elsif n == 0
+      SDL::Synth.note_off(0)
+    end
+    n = ARP[i]
+    SDL::Synth.note_on(1, freq(n), SDL::Synth::PULSE, 0.06) if n > 0
+    n = LEAD[i]
+    if n > 0
+      SDL::Synth.note_on(2, freq(n), SDL::Synth::TILTED_SAW, 0.11)
+    elsif n == 0
+      SDL::Synth.note_off(2)
+    end
+    SDL::Synth.note_on(3, 6000.0, SDL::Synth::NOISE, 0.05) if HAT[i] == 1
+  end
+end

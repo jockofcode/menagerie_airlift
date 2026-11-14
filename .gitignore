@@ -1,0 +1,20 @@
+# Build output: game binary, soak-test and icon-tool binaries, .app bundle,
+# intermediate icon.tga / icon.iconset
+/build/
+spin.lock
+
+# Stray captures from CAPRI_SHOT or make_icon.rb run outside build/
+# (the README screenshot and app icons under assets/ stay tracked)
+/*.png
+/*.tga
+*.iconset/
+
+# macOS
+.DS_Store
+._*
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*~
