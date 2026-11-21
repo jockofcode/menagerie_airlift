@@ -2,6 +2,7 @@
 # while we check that nothing goes non-finite, the chopper stays inside
 # the world, every goat is always accounted for, and some actually
 # get rescued. Run with: spinel test/sim.rb -o build/sim && ./build/sim
+# (SEED=n flies a different repeatable run).
 require_relative "../lib/capri/config"
 require_relative "../lib/capri/game"
 
@@ -10,6 +11,7 @@ def finite?(v)
 end
 
 game = Game.new
+game.reseed(ENV["SEED"].to_i) if ENV["SEED"] != nil
 game.new_game
 game.ai = true
 game.lives = 40

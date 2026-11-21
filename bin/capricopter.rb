@@ -6,6 +6,7 @@ require_relative "../lib/capri/canvas"
 require_relative "../lib/capri/art"
 require_relative "../lib/capri/view"
 require_relative "../lib/capri/sound"
+require_relative "../lib/capri/laya_pilot"
 
 # Capricopter — entry point. All artwork and sound is generated procedurally
 # at startup (lib/capri/art.rb, sound.rb); this file only wires input
@@ -60,6 +61,11 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
   music = Music.new
   SDL::Log.write("assets generated in #{SDL::Screen.ticks - t0} ms")
 
+  # Laya picks the title demo's goals; it loads on its own thread while the
+  # scripted AI flies (lib/capri/laya_pilot.rb).
+  pilot = LayaPilot.new
+  pilot.start
+  
   game = Game.new
   if start_mission > 0 || autoplay
     game.new_game
@@ -126,8 +132,9 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
     dt  = FRAME_DT_MAX if dt > FRAME_DT_MAX
     last_tick = now
 
+    pilot.update(game, now.to_f)
     game.update(dt) unless menu.open?
-    view.draw(game, now.to_f, menu)
+    view.draw(game, now.to_f, menu, pilot)
 
     game.sounds.each { |s| sfx.play(s, now.to_f) }
     game.sounds.each { |s| rumble_for(controls, s) }
@@ -163,6 +170,7 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
   end
 
   SDL::Log.write("#{frames} frames in #{SDL::Screen.ticks - loop_start} ms")
+  pilot.stop
   menu.close_fonts
   controls.close
   view.close

@@ -53,6 +53,10 @@ class Game
               :perfect, :alarm_ms, :level_ms, :deaths, :crash_reason, :goat_losses, :ai_state, :in_x, :in_y, :fire_held
 
   attr_accessor :ai, :lives
+  # The demo pilot's current goal (:none, :land, :bomb or :home), set from
+  # outside (lib/capri/laya_pilot.rb). The AI follows it at each decision
+  # point when it is possible, and makes its own pick otherwise.
+  attr_accessor :advice
 
   def initialize
     @scores = load_scores
@@ -73,7 +77,14 @@ class Game
     @ai_ms = 0.0
     @ai_target = 0.0
     @ai_descend = false
+    @ai_backoff = false
+    @advice = :none
     start_demo
+  end
+
+  # Test aid (test/sim.rb SEED=n): a different but repeatable run.
+  def reseed(n)
+    @rng = Random.new(n)
   end
 
   def emit(s)
@@ -102,6 +113,7 @@ class Game
   def new_game
     @demo = false
     @ai = false
+    @advice = :none
     @score = 0
     @lives = LIVES_START
     @mission = 1
@@ -1316,30 +1328,103 @@ class Game
     true
   end
 
-  # Hover outside the yeti's reach at the altitude that drops rounds onto
-  # it, from whichever side has a clear line. False if neither does.
+  # Go after the yeti from whichever side has a clear line, at the altitude
+  # that drops rounds onto it. False if neither side does.
+  #
+  # A yeti in reach always lumbers in to 320 px, inside its own throwing
+  # range, so a fixed stand-off can't be held: backing away means thrusting
+  # away, which turns the chopper around (facing follows thrust) and it
+  # never settles to fire. So once in range, commit: face it, hold position,
+  # keep the altitude from which rounds land at the current distance, and
+  # fire. Only inside its throwing range break off, in one run, high above
+  # its reach, until there's room to come back around.
   def ai_hunt(t)
     c = @chopper
-    ty = ground_y(t[:x]) - AI_GUN_RISE
-    sides = t[:x] > c.x ? [1.0, -1.0] : [-1.0, 1.0]
+    d = (t[:x] - c.x).abs
+    near = t[:x] > c.x ? 1.0 : -1.0
+    @ai_backoff = true if d < YETI_RANGE + 30.0
+    @ai_backoff = false if d > AI_STAND_OFF
+    if @ai_backoff
+      bx = t[:x] - near * (AI_STAND_OFF + 80.0)
+      # No room behind us: go over the top instead.
+      bx = t[:x] + near * (AI_STAND_OFF + 80.0) if bx < WORLD_L + 100.0 || bx > WORLD_R - 100.0
+      by = ground_y(t[:x]) - 22.0 - YETI_FIRE_ALT - 40.0
+      cy = ai_cruise(c.x, bx)
+      by = cy if cy < by
+      by = CEILING_Y + 12.0 if by < CEILING_Y + 12.0
+      ai_steer(bx, by, false)
+      return true
+    end
+    sides = near > 0.0 ? [1.0, -1.0] : [-1.0, 1.0]
     sides.each do |side|
       tx = t[:x] - side * AI_STAND_OFF
       next if tx < WORLD_L + 100.0 || tx > WORLD_R - 100.0
-      next if ground_top(tx - 60.0, tx + 60.0) < ty + CHOP_SKID_OFF + 40.0
-      next unless ai_clear_shot?(tx, ty, t[:x])
-      d = (t[:x] - c.x).abs
-      if (tx - c.x).abs > 160.0
+      holding = side == near && d <= AI_STAND_OFF + 120.0
+      hx = holding ? c.x : tx
+      ty = ai_gun_alt(t, holding ? d : AI_STAND_OFF)
+      next if ground_top(hx - 60.0, hx + 60.0) < ty + CHOP_SKID_OFF + 40.0
+      next unless ai_clear_shot?(hx, ty, t[:x])
+      if holding
+        ty = ai_aim_alt(t, ty)
+        ai_steer(c.x, ty, false)
+        @in_x = 0 if @in_x * side < 0.0   # never brake by thrusting away: that turns us around
+      elsif (tx - c.x).abs > 160.0
         ai_steer(tx, ai_cruise(c.x, tx), false)
       else
         ai_steer(tx, ty, false)
       end
       face = side > 0.0 ? :right : :left
       turn_to(face) if c.facing != face
-      @fire_held = true if c.facing == face && d > 120.0 && d < AI_STAND_OFF + 160.0 && c.turn_ms <= 0.0 &&
-                           (c.y - ty).abs < 30.0
+      return true unless c.facing == face && d > 120.0 && d < AI_STAND_OFF + 160.0 && c.turn_ms <= 0.0 &&
+                         (c.y - ty).abs < 30.0
+      # Stop firing once the rounds already on their way will see it off
+      # (ai_round_fate predicts each one); ai_check_fire still vetoes any
+      # round that would come down on a goat.
+      coming = 0
+      @bullets.each do |b|
+        coming += 1 if ai_round_fate(b[:x], b[:y], b[:vx], b[:vy], b[:life], t[:x]) == 1
+      end
+      @fire_held = true if coming < t[:hp]
       return true
     end
     false
+  end
+
+  # The altitude to shoot yeti t from: the middle of the band of heights
+  # (searched within 60 px of `guess`) from which a round fired now really
+  # hits it, found with ai_round_fate. The middle, not the nearest edge: the
+  # band slides as the yeti lumbers in, and the edge is always just missed.
+  # The guess if no height hits (say a crag is in the way).
+  def ai_aim_alt(t, guess)
+    c = @chopper
+    d = t[:x] > c.x ? 1.0 : -1.0
+    floor = ground_top(c.x - CHOP_HALF_W, c.x + CHOP_HALF_W) - 20.0
+    sum = 0.0
+    n = 0
+    k = -15
+    while k <= 15
+      y = guess + k * 4.0
+      if y > CEILING_Y && y + CHOP_SKID_OFF < floor &&
+         ai_round_fate(c.x + d * 34.0, y + 6.0, d * BULLET_SPEED, BULLET_DROP, BULLET_LIFE_MS, t[:x]) == 1
+        sum += y
+        n += 1
+      end
+      k += 1
+    end
+    n > 0 ? sum / n : guess
+  end
+
+  # The altitude from which a round fired now comes down on yeti t from d px
+  # away, by the bullet rules in update_chopper / update_bullets: it starts
+  # 34 px ahead and 6 px below the chopper, falls BULLET_DROP + BULLET_GRAVITY
+  # per step more each step, and meets a yeti lumbering in at YETI_SPEED
+  # (they hold off inside 320 px). It should arrive 20 px above the yeti's
+  # ground, mid-way in its hit band.
+  def ai_gun_alt(t, d)
+    closing = d > 320.0 && d < 760.0 ? YETI_SPEED : 0.0
+    n = (d - 34.0) / (BULLET_SPEED + closing)
+    n = 0.0 if n < 0.0
+    ground_y(t[:x]) - 20.0 - 6.0 - (BULLET_DROP * n + BULLET_GRAVITY * n * (n + 1.0) / 2.0)
   end
 
   # The nearest spot to x on its ledge with nobody standing under the skids.
@@ -1370,6 +1455,62 @@ class Game
       end
     end
     n > 0 ? [n, sum / n] : [0, 0.0]
+  end
+
+  # The group of free goats nearest x: [count, center]. The center of every
+  # free goat can be a crag between two ledges, where :land finds no ledge
+  # and drops straight back to :seek, forever.
+  def ai_nearest_goats(x)
+    best = 0.0
+    found = false
+    @goats.each do |h|
+      if h[:state] == :free && (!found || (h[:x] - x).abs < (best - x).abs)
+        best = h[:x]
+        found = true
+      end
+    end
+    return [0, 0.0] unless found
+    ai_free_goats_near(best, 300.0)
+  end
+
+  # What the AI could go after from here, as the demo pilot sees it:
+  # [land possible, charge possible, home possible, the AI's own pick 0..2].
+  def ai_goal_options
+    c = @chopper
+    full = c.aboard >= CHOP_CAPACITY
+    waiting = ai_nearest_goats(c.x)
+    best = 1.0e9
+    sealed = false
+    @drifts.each do |k|
+      d = (k[:x] - c.x).abs
+      if k[:alive] && d < best
+        best = d
+        sealed = true
+      end
+    end
+    land = waiting[0] > 0 && !full
+    bomb = sealed && !full
+    home = c.aboard > 0
+    pick = 2
+    if !full && land && (!sealed || (waiting[1] - c.x).abs < best + 300.0)
+      pick = 0
+    elsif !full && bomb
+      pick = 1
+    elsif !full && land
+      pick = 0
+    end
+    [land ? 1 : 0, bomb ? 1 : 0, home ? 1 : 0, pick]
+  end
+
+  # The advice when it is possible right now, else the AI's own pick.
+  def ai_goal
+    o = ai_goal_options
+    return :land if @advice == :land && o[0] == 1
+    return :bomb if @advice == :bomb && o[1] == 1
+    return :home if @advice == :home && o[2] == 1
+    return :land if o[3] == 0
+    return :bomb if o[3] == 1
+    :home
   end
 
   # Fly over x high enough to stay out of yeti range, square up to the
@@ -1433,8 +1574,7 @@ class Game
         hunted = true
       end
       if hunted
-        ai_evade
-        ai_guard
+        ai_finish
         return
       end
     end
@@ -1448,8 +1588,14 @@ class Game
           target = k
         end
       end
-      cluster = ai_free_goats_near(c.x, 6000.0)
-      if cluster[0] > 0 && (target == nil || (cluster[1] - c.x).abs < best + 300.0)
+      cluster = ai_nearest_goats(c.x)
+      goal = ai_goal
+      if goal == :home && c.aboard > 0
+        @ai_state = :return
+      elsif goal == :bomb && target != nil && c.aboard < CHOP_CAPACITY
+        @ai_target = target[:x]
+        @ai_state = :bomb
+      elsif cluster[0] > 0 && (goal == :land || target == nil || (cluster[1] - c.x).abs < best + 300.0)
         @ai_target = cluster[1]
         @ai_state = :land
       elsif target != nil
@@ -1475,8 +1621,13 @@ class Game
       else
         lg = LEDGES[li]
         tx = ai_landing_spot(cluster[1] + 40.0, lg[0] + 60.0, lg[1] - 50.0)
-        if (tx - c.x).abs > 40.0
+        if (tx - c.x).abs > 250.0
           ai_steer(tx, ai_cruise(c.x, tx), false)
+        elsif (tx - c.x).abs > 40.0
+          # Short sidestep along the ledge (goats walked under the spot):
+          # stay low instead of climbing back to cruise and starting over.
+          low = ground_top(c.x - CHOP_HALF_W, tx + CHOP_HALF_W) - CHOP_SKID_OFF - 70.0
+          ai_steer(tx, c.y > low ? low : c.y, true)
         else
           # Bleed off speed before dropping the last stretch.
           ai_steer(tx, c.vx.abs > 2.2 ? c.y - 10.0 : ground_y(tx) + 10.0, true)
@@ -1494,7 +1645,9 @@ class Game
       done = c.aboard >= CHOP_CAPACITY || near[0] == 0 || @ai_ms > 25000.0
       if done
         @in_y = -1
-        @ai_state = c.aboard > 0 ? :return : :seek
+        # Partly loaded: the advice may send us after more before going home.
+        more = c.aboard < CHOP_CAPACITY && (@advice == :land || @advice == :bomb) && ai_goal == @advice
+        @ai_state = c.aboard > 0 && !more ? :return : :seek
       end
       # A yeti lumbering up on a grounded chopper: leave now.
       @yetis.each do |t|
@@ -1522,8 +1675,7 @@ class Game
       end
     end
 
-    ai_evade
-    ai_guard
+    ai_finish
   end
 
   # Threat handling shared by every state: shoot lined-up birds, dodge
@@ -1596,5 +1748,228 @@ class Game
     if c.skid_y > ground_y(c.x) - 40.0
       @in_x = c.vx > 0.5 ? -1 : (c.vx < -0.5 ? 1 : 0) if c.vx.abs > 2.0
     end
+  end
+
+  # Every state ends here: the threat reflexes, the terrain guard, then the
+  # look-ahead checks, which get the last word.
+  def ai_finish
+    ai_evade
+    ai_guard
+    ai_dodge
+    ai_check_fire
+  end
+
+  # ---- Looking ahead ----
+  #
+  # The reflexes above react to each threat on its own. These replay the
+  # game's own rules a little into the future instead: ai_dodge for the
+  # chopper against everything flying at it (and the rock and drifts it
+  # could fly into), ai_round_fate for a cannon round, so the AI neither
+  # flies into a snowball or a stooping eagle nor fires a round that lands
+  # on a goat or that a yeti, already as good as gone, doesn't need.
+
+  AI_DODGE_STEPS  = 70     # ~1.1 s: longer than any snowball on screen takes to arrive
+  AI_DODGE_MARGIN = 14.0   # px of clearance wanted between the hit boxes
+
+  # Smallest clearance (px; negative = hit) between the chopper and every
+  # snowball, eagle and raven over the next AI_DODGE_STEPS, with the stick
+  # held at (ix, iy). Mirrors update_chopper (rock, drifts and landings
+  # included), then the threats' moves in play_step order: snowballs fall,
+  # eagles stoop at the height the chopper is heading for, ravens home in.
+  def ai_clearance(ix, iy)
+    c = @chopper
+    x = c.x
+    y = c.y
+    vx = c.vx
+    vy = c.vy
+    landed = false
+    acc = c.facing == :front ? CHOP_ACCEL * 0.6 : CHOP_ACCEL
+    ss = []
+    @snowballs.each { |s| ss.push([s[:x], s[:y], s[:vx], s[:vy], 1.0]) }
+    es = []
+    @eagles.each { |j| es.push([j[:x], j[:y], j[:vy], j[:dir], j[:dive] ? 1.0 : 0.0, j[:aim_y]]) }
+    rs = []
+    @ravens.each { |d| rs.push([d[:x], d[:y], d[:phase]]) }
+    worst = 1.0e9
+    n = 0
+    while n < AI_DODGE_STEPS
+      if landed
+        if iy < 0
+          landed = false
+          vy = -1.2
+        end
+      else
+        vx = (vx + ix * acc) * CHOP_DRAG
+        vx = CHOP_MAX_VX if vx > CHOP_MAX_VX
+        vx = 0.0 - CHOP_MAX_VX if vx < 0.0 - CHOP_MAX_VX
+        vy = (vy + iy * CHOP_LIFT) * CHOP_VDRAG
+        vy = CHOP_MAX_VY if vy > CHOP_MAX_VY
+        vy = 0.0 - CHOP_MAX_VY if vy < 0.0 - CHOP_MAX_VY
+        x += vx
+        y += vy
+        x = WORLD_L + 80.0 if x < WORLD_L + 80.0
+        x = WORLD_R - 80.0 if x > WORLD_R - 80.0
+        if y < CEILING_Y
+          y = CEILING_Y.to_f
+          vy = 0.0 if vy < 0.0
+        end
+        @drifts.each do |k|
+          next unless k[:alive]
+          return -1.0 if (x - k[:x]).abs < DRIFT_W / 2.0 + CHOP_HALF_W * 0.6 && y + CHOP_SKID_OFF > k[:y] - DRIFT_H + 6.0
+        end
+        return -1.0 if ground_top(x - CHOP_HALF_W * 0.9, x + CHOP_HALF_W * 0.9) < y + 10.0
+        top = ground_top(x - CHOP_SKID_HALF, x + CHOP_SKID_HALF)
+        if y + CHOP_SKID_OFF >= top
+          return -1.0 if ground_low(x - CHOP_SKID_HALF, x + CHOP_SKID_HALF) - top > CHOP_LAND_FLAT
+          return -1.0 if vy > CHOP_LAND_VY || vx.abs > CHOP_LAND_VX
+          y = top - CHOP_SKID_OFF
+          vx = 0.0
+          vy = 0.0
+          landed = true
+        end
+      end
+      ss.each do |s|
+        next if s[4] <= 0.0
+        s[3] += 0.02
+        s[0] += s[2]
+        s[1] += s[3]
+        if s[1] >= ground_y(s[0]) - 4.0 || s[1] < 0.0
+          s[4] = 0.0
+          next
+        end
+        gap = [(s[0] - x).abs - CHOP_HALF_W, (s[1] - y).abs - CHOP_HALF_H - 6.0].max
+        worst = gap if gap < worst
+      end
+      es.each do |j|
+        j[0] += j[3] * EAGLE_SPEED
+        ahead = (x - j[0]) * j[3]
+        if j[4] == 0.0 && y + CHOP_SKID_OFF < ground_y(x) - 40.0 && ahead > 160.0 && ahead < 560.0 && (y - j[1]).abs < 140.0
+          j[4] = 1.0
+          j[5] = y + vy * 20.0
+        end
+        want = 0.0
+        if j[4] == 1.0
+          if ahead > 0.0
+            want = (j[5] - j[1]) * 0.05
+            want = EAGLE_DIVE if want > EAGLE_DIVE
+            want = 0.0 - EAGLE_DIVE if want < 0.0 - EAGLE_DIVE
+          else
+            want = -1.2
+          end
+        end
+        j[2] += (want - j[2]) * 0.1
+        j[1] += j[2]
+        j[1] = CEILING_Y - 20.0 if j[1] < CEILING_Y - 20.0
+        g = ground_y(j[0]) - 30.0
+        j[1] = g if j[1] > g
+        gap = [(j[0] - x).abs - CHOP_HALF_W - 8.0, (j[1] - y).abs - CHOP_HALF_H].max
+        worst = gap if gap < worst
+      end
+      rs.each do |d|
+        d[2] += 0.06
+        dx = x - d[0]
+        dy = y - d[1]
+        len = Math.sqrt(dx * dx + dy * dy)
+        len = 1.0 if len < 1.0
+        d[0] += dx / len * RAVEN_SPEED
+        d[1] += dy / len * RAVEN_SPEED + Math.sin(d[2]) * 1.2
+        g = ground_y(d[0]) - 30.0
+        d[1] = g if d[1] > g
+        gap = [(d[0] - x).abs - CHOP_HALF_W, (d[1] - y).abs - CHOP_HALF_H - 8.0].max
+        worst = gap if gap < worst
+      end
+      return worst if worst < 0.0
+      n += 1
+    end
+    worst
+  end
+
+  # If the stick the AI chose runs into something within the horizon, take
+  # the nearest stick that doesn't (or, if none is clear, the one that
+  # stays clear longest... approximated by the largest clearance).
+  def ai_dodge
+    c = @chopper
+    return if c.landed
+    near_drift = false
+    @drifts.each do |k|
+      near_drift = true if k[:alive] && (c.x - k[:x]).abs < DRIFT_W / 2.0 + 200.0 && c.skid_y > k[:y] - DRIFT_H - 60.0
+    end
+    return if !near_drift && @snowballs.empty? && @eagles.empty? && @ravens.empty?
+    return if ai_clearance(@in_x, @in_y) >= AI_DODGE_MARGIN
+    best_x = @in_x
+    best_y = @in_y
+    best_gap = -1.0e9
+    best_cost = 99
+    [-1, 0, 1].each do |iy|
+      [-1, 0, 1].each do |ix|
+        gap = ai_clearance(ix, iy)
+        cost = (ix - @in_x).abs + (iy - @in_y).abs
+        safe = gap >= AI_DODGE_MARGIN
+        best_safe = best_gap >= AI_DODGE_MARGIN
+        better = if safe && best_safe
+                   cost < best_cost
+                 else
+                   gap > best_gap
+                 end
+        if better
+          best_x = ix
+          best_y = iy
+          best_gap = gap
+          best_cost = cost
+        end
+      end
+    end
+    @in_x = best_x
+    @in_y = best_y
+  end
+
+  # Where a round with this state ends up, by update_bullets / bullet_hits:
+  # 1 = it hits the yeti at target_x (none: -1.0e9), 2 = another yeti,
+  # -1 = a goat, 0 = nothing (rock, a drift, or it runs out of life). Yetis
+  # within reach lumber toward the chopper while it flies.
+  def ai_round_fate(x, y, vx, vy, life, target_x)
+    c = @chopper
+    n = 0
+    while true
+      vy += BULLET_GRAVITY
+      x += vx
+      y += vy
+      life -= STEP_MS
+      return 0 if life <= 0.0 || y >= ground_y(x)
+      @drifts.each do |k|
+        return 0 if k[:alive] && (x - k[:x]).abs < DRIFT_W / 2.0 && y > k[:y] - DRIFT_H
+      end
+      @yetis.each do |t|
+        next unless t[:alive]
+        tx = t[:x]
+        mine = tx == target_x
+        dx = c.x - tx
+        tx += (dx > 0.0 ? YETI_SPEED : 0.0 - YETI_SPEED) * n if dx.abs < 760.0 && dx.abs > 320.0
+        tx = FENCE_X - 90.0 if tx > FENCE_X - 90.0
+        tx = WORLD_L + 40.0 if tx < WORLD_L + 40.0
+        g = ground_y(tx)
+        return mine ? 1 : 2 if (x - tx).abs < 22.0 && y > g - 46.0 && y < g + 4.0
+      end
+      @goats.each do |h|
+        next unless h[:state] == :free || h[:state] == :exiting
+        return -1 if (x - h[:x]).abs < 9.0 && y > ground_y(h[:x]) - 18.0
+      end
+      n += 1
+    end
+  end
+
+  # The fate of a round fired right now.
+  def ai_next_round(target_x)
+    c = @chopper
+    d = c.dir
+    ai_round_fate(c.x + c.vx + d * 34.0, c.y + c.vy + 6.0, d * BULLET_SPEED + c.vx * 0.4, BULLET_DROP,
+                  BULLET_LIFE_MS, target_x)
+  end
+
+  # Last word on the trigger: never fire a round that comes down on a
+  # goat, whatever it was meant for.
+  def ai_check_fire
+    c = @chopper
+    @fire_held = false if @fire_held && c.facing != :front && ai_next_round(-1.0e9) == -1
   end
 end

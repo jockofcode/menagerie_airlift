@@ -196,7 +196,6 @@ SCORES_KEEP = 5
 SCORES_PATH = (ENV["HOME"] || "/tmp") + "/.capricopter_scores"
 
 # ---- Demo AI ----
-# Gun-run geometry: hover AI_GUN_RISE above a yeti's ground and
-# AI_STAND_OFF from it, which is where a round fired level-ish lands on it.
+# Gun-run geometry: keep AI_STAND_OFF from a yeti, outside its throwing
+# range (Game#ai_gun_alt works out the height to fire from).
 AI_STAND_OFF = 570.0
-AI_GUN_RISE  = 22.0 + (BULLET_DROP * (570.0 / BULLET_SPEED) + 0.5 * BULLET_GRAVITY * (570.0 / BULLET_SPEED) * (570.0 / BULLET_SPEED)) + 6.0

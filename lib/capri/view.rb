@@ -119,7 +119,8 @@ class View
   # ---- Frame ----
 
   # menu: the SDL::PauseMenu, drawn last so it sits over everything.
-  def draw(game, t, menu)
+  # pilot: the LayaPilot, whose thinking the title screen shows.
+  def draw(game, t, menu, pilot)
     @r.draw_color(0, 0, 0, 255)
     @r.clear
     @cam = game.cam_x
@@ -145,6 +146,7 @@ class View
       @r.fill_rect(0, 0, WINDOW_W, HUD_Y)
     end
     draw_overlay(game, t)
+    draw_pilot(pilot) if game.screen == :title
     draw_hud(game, t)
     menu.draw(@r, WINDOW_W, WINDOW_H)
     @r.present
@@ -557,6 +559,38 @@ class View
     draw_scores(game, cx, 340, t)
     shadowed(@font_hud, "BLAST THE SNOW DRIFTS, LAND ON THE LEDGE, FLY THE GOATS HOME", cx, 522, 255, 220, 120, :center)
     shadowed(@font_hud, "ARROWS / WASD FLY     SPACE FIRE     X FACE THE CAMERA FOR CHARGES", cx, 550, 200, 200, 210, :center)
+  end
+
+  # Beside the high scores: who is flying the demo, and Laya's last call
+  # (one bar per goal, the goal being flown lit).
+  def draw_pilot(pilot)
+    x = 28
+    y = 336
+    @r.draw_color(0, 0, 0, 120)
+    @r.fill_rect(x - 12, y - 8, 290, 170)
+    lit = pilot.laya?
+    shadowed(@font_hud, "LAYA PILOT", x, y, lit ? 140 : 170, lit ? 220 : 170, lit ? 255 : 180, :left)
+    text(@font_pop, pilot.status_line, x, y + 28, 200, 200, 210, 255, :left)
+    i = 0
+    while i < GOAL_LABELS.length
+      row = y + 56 + i * 26
+      flown = i == pilot.goal
+      p = lit ? pilot.probs[i] : (flown ? 1.0 : 0.0)
+      r = flown ? 140 : 150
+      g = flown ? 220 : 150
+      b = flown ? 255 : 165
+      text(@font_pop, GOAL_LABELS[i], x, row, r, g, b, 255, :left)
+      @r.draw_color(40, 44, 60, 200)
+      @r.fill_rect(x + 60, row + 6, 150, 10)
+      @r.draw_color(r, g, b, 255)
+      @r.fill_rect(x + 60, row + 6, (p * 150.0).round, 10)
+      text(@font_pop, "#{(p * 100.0).round}%", x + 218, row, r, g, b, 255, :left) if lit
+      i += 1
+    end
+    return unless lit
+    note = "#{pilot.decisions} CALLS  SHIELD #{pilot.saves}"
+    note = "SHIELD: #{GOAL_LABELS[pilot.proposed]} BLOCKED" if pilot.shielded
+    text(@font_pop, note, x, y + 136, pilot.shielded ? 255 : 170, pilot.shielded ? 170 : 170, pilot.shielded ? 90 : 180, 255, :left)
   end
 
   def draw_scores(game, cx, y, t)

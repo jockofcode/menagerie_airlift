@@ -96,6 +96,22 @@ Land gently and on the level: touching down faster than a slow sink, while still
 sideways, or with the skids across a slope wrecks the chopper. Goats only come to a chopper that
 has landed on their own ledge, and they hop off only on the pad at the barn.
 
+## Laya on the title screen
+
+The attract demo is piloted with help from [Laya](../laya), a small on-device decision model.
+Every time the demo chopper picks what to do next, Laya chooses between **LAND** (pick up waiting
+goats), **BLAST** (charge a snow drift open) and **HOME** (fly back and unload); the scripted AI
+then flies that goal, dodging and fighting as usual. The AI tells Laya which goals are possible
+and which it would pick itself; a shield swaps an impossible pick for the likeliest possible one.
+A panel beside the high scores shows Laya's odds for each goal, the goal being flown, and how
+long each call takes.
+
+Laya runs on its own thread and loads in a second or two; until then, or if its weights are
+missing, the scripted AI flies the demo alone. Real games are never touched. The weights live in
+the laya checkout next to this one (`sh ../laya/bin/fetch_model.sh`); `CAPRI_LAYA_MODEL=dir`
+points elsewhere, `CAPRI_LAYA=0` turns Laya off, and `LAYA_BACKEND` picks its backend. The first
+`spin build` asks to build laya's native code: answer `always`, or run `spin trust laya` first.
+
 ## Layout
 
 | Path | What it is |
@@ -105,6 +121,7 @@ has landed on their own ledge, and they hop off only on the pad at the barn.
 | `lib/capri/game.rb` | Rules and the fixed-step simulation, screen flow, high scores, demo AI |
 | `lib/capri/canvas.rb` | CPU raster canvas: SDF shapes, shading, noise, text, texture upload |
 | `lib/capri/art.rb` | Skies, peaks, clouds, the mountain slices, barn, drifts, chopper, goats, yetis, birds, panel, logo |
+| `lib/capri/laya_pilot.rb` | Laya's goal picks for the title demo, on a background thread |
 | `lib/capri/view.rb` | Per-frame drawing, parallax, status panel with the radar profile, overlays |
 | `lib/capri/sound.rb` | Synthesized sound effects (bleats, snowballs, screeches), rotor drone and chip tune |
 | `tools/make_icon.rb` | Paints `assets/icons` with the same rasterizer (run `tools/make_icon.sh`) |
@@ -118,7 +135,7 @@ heightfield.
 Headless soak test — the demo AI flies sorties for twelve simulated minutes while the test
 checks that nothing goes non-finite, the chopper stays above the ground and inside the world,
 every goat is always accounted for and some actually get rescued. `TRACE=1` prints each crash
-with the AI's state:
+with the AI's state, and `SEED=n` flies a different (still repeatable) run:
 
 ```sh
 spinel test/sim.rb -o build/sim && ./build/sim
@@ -129,6 +146,8 @@ Debug environment variables for the game binary:
 | Variable | Effect |
 |---|---|
 | `CAPRI_AUTOPLAY=1` | The demo AI flies a real game |
+| `CAPRI_LAYA=0` | No Laya: the scripted AI flies the title demo alone |
+| `CAPRI_LAYA_MODEL=dir` | Laya weights directory (default `../laya/models/laya-multilingual`) |
 | `CAPRI_SHOT=/path.png` | Capture the window after `CAPRI_SHOT_FRAME` frames (default 240), then quit |
 | `CAPRI_MISSION=n` | Start a game on mission `n` |
 | `CAPRI_SCREEN=results\|dead\|game_over\|entry` | Jump straight to that screen |
