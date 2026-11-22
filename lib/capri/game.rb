@@ -46,7 +46,7 @@ class Chopper
 end
 
 class Game
-  attr_reader :screen, :screen_ms, :time_ms, :mission, :score, :high_score, :chopper,
+  attr_reader :start_level, :screen, :screen_ms, :time_ms, :mission, :score, :high_score, :chopper,
               :goats, :drifts, :yetis, :eagles, :ravens, :bullets, :bombs,
               :snowballs, :particles, :popups, :shake_x, :shake_y, :flash_ms, :cam_x, :saved,
               :lost, :demo, :paused, :scores, :entry, :entry_cursor, :new_high, :message,
@@ -61,6 +61,7 @@ class Game
   attr_accessor :advice
 
   def initialize
+    @start_level = 0
     @scores = load_scores
     @high_score = @scores.length > 0 ? @scores[0][0] : 0
     @sounds = []
@@ -164,12 +165,13 @@ class Game
   end
 
   def load_mission
+    set_level(level_for(@mission, @start_level))
     @chopper.reset
     @goats = []
     @drifts = []
     i = 0
-    while i < LEDGES.length
-      lg = LEDGES[i]
+    while i < ledges.length
+      lg = ledges[i]
       @drifts.push({ x: drift_x(i), y: lg[2], lo: lg[0], hi: lg[1], hp: DRIFT_HP, alive: true,
                      inside: GOATS_PER_DRIFT, spawn_ms: 0.0, flash: 0.0, puff_ms: 0.0 })
       i += 1
@@ -178,7 +180,7 @@ class Game
     i = 0
     while i < YETI_START + @mission - 1
       # Lowest ledges first, toward the open end where a chopper would land.
-      lg = LEDGES[LEDGES.length - 1 - (i % LEDGES.length)]
+      lg = ledges[ledges.length - 1 - (i % ledges.length)]
       x = lg[1] - 60.0 - @rng.rand * 160.0
       @yetis.push(new_yeti(x, -1))
       i += 1
@@ -265,6 +267,19 @@ class Game
     elsif @screen == :entry
       commit_entry
     end
+  end
+
+  # On the title screen, left and right step through the levels for the
+  # next game's first mission; the demo behind restarts on that level.
+  def pick_level(dx)
+    return unless @screen == :title && dx != 0
+    k = @start_level + (dx < 0 ? -1 : 1)
+    k = 0 if k < 0
+    k = LEVEL_COUNT - 1 if k > LEVEL_COUNT - 1
+    return if k == @start_level
+    @start_level = k
+    emit(:menu)
+    start_demo
   end
 
   def toggle_pause
@@ -747,7 +762,7 @@ class Game
       k[:alive] = false
       k[:spawn_ms] = 600.0
       snow_burst(k[:x], k[:y] - DRIFT_H / 2.0, 30)
-      debris(k[:x], k[:y] - DRIFT_H / 2.0, 14, [0.92, 0.95, 1.0])
+      debris(k[:x], k[:y] - DRIFT_H / 2.0, 14, cascadia? ? [0.55, 0.36, 0.22] : [0.92, 0.95, 1.0])
       @shake_x = 9.0
       @shake_y = 7.0
       add_score(SCORE_DRIFT)
@@ -983,7 +998,7 @@ class Game
     t[:alive] = false
     g = ground_y(t[:x])
     snow_burst(t[:x], g - 24.0, 24)
-    debris(t[:x], g - 24.0, 8, [0.92, 0.94, 1.0])
+    debris(t[:x], g - 24.0, 8, cascadia? ? [0.36, 0.24, 0.15] : [0.92, 0.94, 1.0])
     add_score(SCORE_YETI)
     popup(t[:x], g - 70.0, "#{SCORE_YETI}", [1.0, 0.9, 0.5], false)
     emit(:yeti_off)
@@ -1065,7 +1080,7 @@ class Game
       g = ground_y(j[:x]) - 30.0
       j[:y] = g if j[:y] > g
       if c.alive && (j[:x] - c.x).abs < CHOP_HALF_W + 8.0 && (j[:y] - c.y).abs < CHOP_HALF_H
-        feathers(j[:x], j[:y], 14, [0.45, 0.32, 0.18])
+        feathers(j[:x], j[:y], 14, bird_color)
         crash(:eagle)
         alive = false
       end
@@ -1076,7 +1091,7 @@ class Game
   end
 
   def drive_off_eagle(j)
-    feathers(j[:x], j[:y], 12, [0.45, 0.32, 0.18])
+    feathers(j[:x], j[:y], 12, bird_color)
     popup(j[:x], j[:y] - 20.0, "#{SCORE_EAGLE}", [1.0, 0.9, 0.5], false)
     j[:x] = WORLD_L - 1000.0   # drops out of the keep list next step
     add_score(SCORE_EAGLE)
@@ -1367,17 +1382,26 @@ class Game
     end
   end
 
-  # Powder thrown up in a cloud: soft white puffs plus a few falling clumps.
+  # Powder thrown up in a cloud: soft white puffs plus a few falling clumps;
+  # in Cascadia's forest, earth and needles instead.
   def snow_burst(x, y, count)
+    col = cascadia? ? [0.58, 0.50, 0.38] : [0.95, 0.97, 1.0]
     i = 0
     while i < count
       a = @rng.rand * TWO_PI
       v = 1.0 + @rng.rand * 2.6
       @particles.push({ x: x, y: y, vx: Math.cos(a) * v, vy: Math.sin(a) * v - 1.0, life: 600.0 + @rng.rand * 600.0,
-                        max: 1200.0, size: 7.0 + @rng.rand * 7.0, r: 0.95, g: 0.97, b: 1.0, kind: :smoke, spin: 0.0 })
+                        max: 1200.0, size: 7.0 + @rng.rand * 7.0, r: col[0], g: col[1], b: col[2], kind: :smoke, spin: 0.0 })
       i += 1
     end
-    debris(x, y, count / 3, [0.95, 0.97, 1.0])
+    debris(x, y, count / 3, cascadia? ? [0.40, 0.30, 0.18] : col)
+  end
+
+  # Feathers of the level's big bird: golden eagle, gull or owl.
+  def bird_color
+    return [0.88, 0.90, 0.94] if arctic?
+    return [0.58, 0.46, 0.34] if cascadia?
+    [0.45, 0.32, 0.18]
   end
 
   def feathers(x, y, count, col)
@@ -1413,9 +1437,9 @@ class Game
     end
   end
 
-  # Rotor wash: powder on the mountain, dust in the valley.
+  # Rotor wash: powder on the mountain, dust in the valley and the forest.
   def dust(x, count)
-    snowy = x < FENCE_X
+    snowy = x < FENCE_X && !cascadia?
     i = 0
     while i < count
       side = @rng.rand < 0.5 ? -1.0 : 1.0
@@ -1807,7 +1831,7 @@ class Game
       if cluster[0] == 0 || li < 0
         @ai_state = :seek
       else
-        lg = LEDGES[li]
+        lg = ledges[li]
         tx = ai_landing_spot(cluster[1] + 40.0, lg[0] + 60.0, lg[1] - 50.0)
         if (tx - c.x).abs > 250.0
           ai_steer(tx, ai_cruise(c.x, tx), false)

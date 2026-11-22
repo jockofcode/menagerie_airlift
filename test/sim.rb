@@ -12,7 +12,15 @@ end
 
 game = Game.new
 game.reseed(ENV["SEED"].to_i) if ENV["SEED"] != nil
+# LEVEL=n picks level n (0 the mountain, 1 the arctic, 2 Cascadia) as the
+# first, as on the title screen.
+if ENV["LEVEL"] != nil
+  n = ENV["LEVEL"].to_i
+  n.times { game.pick_level(1) }
+end
 game.new_game
+# MISSION=n starts on mission n (missions alternate between the two levels).
+game.skip_to(ENV["MISSION"].to_i) if ENV["MISSION"] != nil
 game.ai = true
 game.lives = 40
 failures = 0
