@@ -24,6 +24,9 @@ last_mission = game.mission
 reported = false
 counted = false
 reasons = {}
+bonus_told = false
+crates_caught = 0
+crates_dropped = 0
 while steps < max_steps && game.screen != :game_over && game.screen != :entry
   game.update(STEP_MS)
   game.sounds.clear
@@ -67,6 +70,13 @@ while steps < max_steps && game.screen != :game_over && game.screen != :entry
     end
   end
   counted = false if game.screen != :dead
+  if game.crates_done? && !bonus_told
+    bonus_told = true
+    crates_caught += game.crates_caught
+    crates_dropped += CRATE_COUNT
+    puts "  supply drop: caught #{game.crates_caught}/#{CRATE_COUNT}, bonus #{game.crate_score}"
+  end
+  bonus_told = false if game.screen != :bonus
   if game.mission != last_mission
     reported = false
     missions += 1
@@ -79,6 +89,12 @@ secs = (steps * STEP_MS / 1000.0).round
 puts "#{secs}s simulated: mission #{game.mission}, saved #{game.saved}, lost #{game.lost}, aboard #{game.chopper.aboard}, score #{game.score}, deaths #{game.deaths}, screen #{game.screen}"
 if game.saved + missions * GOATS_TOTAL < 16
   puts "FAIL fewer than 16 goats rescued"
+  failures += 1
+end
+if crates_dropped > 0
+  puts "crates caught #{crates_caught}/#{crates_dropped}"
+elsif missions > 0
+  puts "FAIL a mission ended without a supply drop"
   failures += 1
 end
 reasons.each { |k, v| puts "  crash #{k}: #{v}" }

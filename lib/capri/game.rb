@@ -2,7 +2,8 @@
 # the mountain heightfield, snow drifts and the goats behind them, yetis
 # and their snowballs, diving eagles, homing ravens, the cannon and the
 # avalanche charges, particles and popups, plus the screen flow (title
-# demo -> intro -> play -> dead / results -> game over -> initials). Side
+# demo -> intro -> play -> dead / results -> supply drop bonus -> game
+# over -> initials). Side
 # effects for the outside world (sounds) are queued as symbols in
 # `sounds`, which the main loop drains each frame.
 
@@ -50,7 +51,8 @@ class Game
               :snowballs, :particles, :popups, :shake_x, :shake_y, :flash_ms, :cam_x, :saved,
               :lost, :demo, :paused, :scores, :entry, :entry_cursor, :new_high, :message,
               :message_ms, :sounds, :day, :mission_saved, :mission_lost, :mission_bonus,
-              :perfect, :alarm_ms, :level_ms, :deaths, :crash_reason, :goat_losses, :ai_state, :in_x, :in_y, :fire_held
+              :perfect, :alarm_ms, :level_ms, :deaths, :crash_reason, :goat_losses, :ai_state, :in_x, :in_y, :fire_held,
+              :crates, :crates_left, :crates_caught, :crates_missed, :crate_score
 
   attr_accessor :ai, :lives
   # The demo pilot's current goal (:none, :land, :bomb or :home), set from
@@ -144,6 +146,9 @@ class Game
       @screen = :play
       @chopper.aboard = 5
       crash(:snowball)
+    elsif name == "bonus"
+      @screen = :play
+      start_bonus
     elsif name == "game_over"
       @lives = 0
       @screen = :game_over
@@ -185,6 +190,11 @@ class Game
     @snowballs = []
     @particles = []
     @popups = []
+    @crates = []
+    @crates_left = 0
+    @crates_caught = 0
+    @crates_missed = 0
+    @crate_score = 0
     @saved = 0
     @lost = 0
     @level_ms = 0.0
@@ -229,7 +239,7 @@ class Game
 
   # Toggles between facing the camera (dropping charges) and facing sideways.
   def press_turn
-    return if @paused || @screen != :play && @screen != :title
+    return if @paused || @screen != :play && @screen != :title && @screen != :bonus
     c = @chopper
     return unless c.alive
     if c.facing == :front
@@ -258,7 +268,7 @@ class Game
   end
 
   def toggle_pause
-    @paused = !@paused if @screen == :play || @screen == :intro
+    @paused = !@paused if @screen == :play || @screen == :intro || @screen == :bonus
   end
 
   def entry_move(dx, dy)
@@ -360,13 +370,9 @@ class Game
     elsif @screen == :results
       update_fx
       update_camera
-      if @screen_ms >= RESULTS_MS
-        @mission += 1
-        load_mission
-        @screen = :intro
-        @screen_ms = 0.0
-        emit(:start)
-      end
+      start_bonus if @screen_ms >= RESULTS_MS
+    elsif @screen == :bonus
+      bonus_step
     elsif @screen == :game_over || @screen == :entry
       update_fx
       if @screen == :game_over && @screen_ms >= GAME_OVER_MS
@@ -495,6 +501,7 @@ class Game
       c.y += c.vy
       c.x = WORLD_L + 80.0 if c.x < WORLD_L + 80.0
       c.x = WORLD_R - 80.0 if c.x > WORLD_R - 80.0
+      c.x = WORLD_R - WINDOW_W + 50.0 if @screen == :bonus && c.x < WORLD_R - WINDOW_W + 50.0
       if c.y < CEILING_Y
         c.y = CEILING_Y.to_f
         c.vy = 0.0 if c.vy < 0.0
@@ -519,7 +526,7 @@ class Game
           crash(:cliff)
           return
         end
-        if c.vy > CHOP_LAND_VY || c.vx.abs > CHOP_LAND_VX
+        if (c.vy > CHOP_LAND_VY || c.vx.abs > CHOP_LAND_VX) && @screen != :bonus
           crash(:hard_landing)
           return
         end
@@ -541,7 +548,7 @@ class Game
 
     # Cannon sideways, avalanche charges when facing the camera.
     want_fire = @fire_held || @fire_pressed
-    if want_fire && !c.landed
+    if want_fire && !c.landed && @screen != :bonus
       if c.facing == :front
         if c.bomb_gap <= 0.0 && @bombs.length < BOMB_MAX
           c.bomb_gap = BOMB_GAP_MS
@@ -1170,12 +1177,169 @@ class Game
     c = @chopper
     look = c.facing == :right ? 200.0 : (c.facing == :left ? -200.0 : 0.0)
     target = c.x + look - WINDOW_W / 2.0
+    target = WORLD_R - WINDOW_W if @screen == :bonus
     target = WORLD_L if target < WORLD_L
     target = WORLD_R - WINDOW_W if target > WORLD_R - WINDOW_W
     @cam_x += (target - @cam_x) * 0.06
     @shake_x *= 0.86
     @shake_y *= 0.86
     @flash_ms -= STEP_MS if @flash_ms > 0.0
+  end
+
+  # ---- Bonus round: supply drop ----
+
+  def start_bonus
+    @screen = :bonus
+    @screen_ms = 0.0
+    @yetis = []
+    @eagles = []
+    @ravens = []
+    @bullets = []
+    @bombs = []
+    @snowballs = []
+    @goats = []
+    @crates = []
+    @crates_left = CRATE_COUNT
+    @crates_caught = 0
+    @crates_missed = 0
+    @crate_score = 0
+    @crate_ms = CRATE_INTRO_MS
+    @crate_done_ms = -1.0
+    c = @chopper
+    c.reset unless c.alive
+    c.aboard = 0
+    emit(:start)
+  end
+
+  def bonus_step
+    ai_bonus if @ai
+    update_chopper
+    update_crates
+    update_fx
+    update_camera
+    return if @crates_left > 0 || @crates.length > 0
+    if @crate_done_ms < 0.0
+      @crate_done_ms = 0.0
+      if @crates_caught == CRATE_COUNT
+        add_score(SCORE_CRATE_ALL)
+        @crate_score += SCORE_CRATE_ALL
+        @flash_ms = 400.0
+        emit(:fanfare)
+      else
+        emit(:mission)
+      end
+    end
+    @crate_done_ms += STEP_MS
+    if @crate_done_ms >= CRATE_OUTRO_MS
+      @mission += 1
+      load_mission
+      @screen = :intro
+      @screen_ms = 0.0
+      emit(:start)
+    end
+  end
+
+  # True once the last crate is down and the tally is showing.
+  def crates_done?
+    @screen == :bonus && @crate_done_ms >= 0.0
+  end
+
+  def crate_fall_speed
+    v = CRATE_FALL + (@mission - 1) * 0.08
+    v > 1.9 ? 1.9 : v
+  end
+
+  def update_crates
+    @crate_ms -= STEP_MS
+    if @crates_left > 0 && @crate_ms <= 0.0
+      gap = CRATE_GAP_MS - (@mission - 1) * 60.0
+      gap = 650.0 if gap < 650.0
+      @crate_ms = gap
+      x = CRATE_FIELD_L + @rng.rand * (CRATE_FIELD_R - CRATE_FIELD_L)
+      @crates.push({ x: x, y: CRATE_TOP_Y, vy: crate_fall_speed + @rng.rand * 0.35, sway: @rng.rand * TWO_PI,
+                     drift: (@rng.rand - 0.5) * 0.5 })
+      @crates_left -= 1
+    end
+    c = @chopper
+    keep = []
+    half = CRATE_SIZE / 2.0
+    @crates.each do |k|
+      k[:sway] = k[:sway] + 0.045
+      k[:x] = k[:x] + k[:drift] + Math.sin(k[:sway]) * 0.45
+      k[:x] = CRATE_FIELD_L if k[:x] < CRATE_FIELD_L
+      k[:x] = CRATE_FIELD_R if k[:x] > CRATE_FIELD_R
+      k[:y] = k[:y] + k[:vy]
+      if c.alive && (k[:x] - c.x).abs < CRATE_CATCH_HALF_W && (k[:y] - c.y).abs < CHOP_HALF_H + half + 4.0
+        @crates_caught += 1
+        add_score(SCORE_CRATE)
+        @crate_score += SCORE_CRATE
+        popup(k[:x], k[:y] - 30.0, "+#{SCORE_CRATE}", [1.0, 0.9, 0.4], false)
+        burst(k[:x], k[:y], 12, [1.0, 0.9, 0.5], 2.5, 400.0, 4.0)
+        emit(:saved)
+      elsif k[:y] + half >= GROUND_Y
+        @crates_missed += 1
+        debris(k[:x], GROUND_Y - 10.0, 10, [0.62, 0.44, 0.24])
+        snow_burst(k[:x], GROUND_Y - 6.0, 8)
+        popup(k[:x], GROUND_Y - 50.0, "SMASHED", [1.0, 0.5, 0.4], false)
+        @shake_y = 3.0
+        emit(:crush)
+      else
+        keep.push(k)
+      end
+    end
+    @crates = keep
+  end
+
+  # Demo / autoplay: get under the crate that will come down soonest and
+  # can still be reached, and let it fall onto the cabin. A crate already
+  # below the hover line gets chased down toward the ground.
+  def ai_bonus
+    c = @chopper
+    @in_x = 0
+    @in_y = 0
+    @fire_held = false
+    return unless c.alive
+    if c.landed
+      @in_y = -1
+      return
+    end
+    hover = GROUND_Y - 170.0
+    low = GROUND_Y - CHOP_SKID_OFF - 30.0
+    catch_dy = CHOP_HALF_H + CRATE_SIZE / 2.0
+    best = nil
+    best_t = 1.0e9
+    fallback = nil
+    fallback_t = 1.0e9
+    @crates.each do |k|
+      line = k[:y] > hover ? low : hover
+      t_ground = (line + catch_dy - k[:y]) / k[:vy]
+      next if t_ground < 0.0
+      if t_ground < fallback_t
+        fallback = k
+        fallback_t = t_ground
+      end
+      t_reach = (k[:x] + k[:drift] * t_ground - c.x).abs / (CHOP_MAX_VX * 0.7) + 12.0
+      if t_reach < t_ground && t_ground < best_t
+        best = k
+        best_t = t_ground
+      end
+    end
+    best = fallback if best == nil
+    tx = (CRATE_FIELD_L + CRATE_FIELD_R) / 2.0
+    ty = hover
+    if best != nil
+      tx = best[:x] + best[:drift] * best_t * 0.5
+      ty = best[:y] > hover - 20.0 ? best[:y] + 12.0 : hover
+      ty = low if ty > low
+    end
+    want_vx = (tx - c.x) * 0.06
+    want_vx = CHOP_MAX_VX if want_vx > CHOP_MAX_VX
+    want_vx = 0.0 - CHOP_MAX_VX if want_vx < 0.0 - CHOP_MAX_VX
+    @in_x = c.vx < want_vx - 0.2 ? 1 : (c.vx > want_vx + 0.2 ? -1 : 0)
+    want_vy = (ty - c.y) * 0.08
+    want_vy = CHOP_MAX_VY if want_vy > CHOP_MAX_VY
+    want_vy = 0.0 - CHOP_MAX_VY if want_vy < 0.0 - CHOP_MAX_VY
+    @in_y = c.vy < want_vy - 0.2 ? 1 : (c.vy > want_vy + 0.2 ? -1 : 0)
   end
 
   # ---- Particles, popups ----

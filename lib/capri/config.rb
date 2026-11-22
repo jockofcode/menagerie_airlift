@@ -197,6 +197,23 @@ SCORE_MISSION_PER_SAVED = 100
 SCORE_PERFECT   = 5000
 
 SCORES_KEEP = 5
+
+# ---- Bonus round: supply drop ----
+# After each mission's results, crates parachute down over the valley;
+# catch them on the chopper before they smash on the ground. The field is
+# the one flat screen of valley floor by the barn, and nothing shoots back.
+CRATE_COUNT      = 12
+CRATE_INTRO_MS   = 2200.0       # the banner, before the first crate drops
+CRATE_GAP_MS     = 1150.0       # between drops (shrinks a little each mission)
+CRATE_FALL       = 1.05         # base fall speed, px per step (rises per mission)
+CRATE_TOP_Y      = -40.0        # where a crate appears (just above the screen)
+CRATE_SIZE       = 26.0
+CRATE_CATCH_HALF_W = 44.0       # how near the chopper's middle a crate must land
+CRATE_OUTRO_MS   = 3200.0       # the tally, after the last crate
+CRATE_FIELD_L    = WORLD_R - WINDOW_W + 70.0
+CRATE_FIELD_R    = WORLD_R - 70.0
+SCORE_CRATE      = 300
+SCORE_CRATE_ALL  = 3000
 SCORES_PATH = (ENV["HOME"] || "/tmp") + "/.capricopter_scores"
 
 # ---- Demo AI ----

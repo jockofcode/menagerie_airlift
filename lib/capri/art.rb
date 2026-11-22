@@ -13,7 +13,7 @@ class Art
               :clouds, :cloud_spots, :terrain, :terrain_x, :terrain_top, :terrain_h, :trees, :tree_spots, :base, :pad, :sign, :drift,
               :cave, :chopper_side, :chopper_front, :rotor, :tail_rotor, :shadow, :goat,
               :yeti, :yeti_arm, :snowball, :eagle, :raven, :bullet, :bomb, :glow, :smoke, :debris, :feather,
-              :hud, :logo, :chopper_icon, :goat_icon
+              :hud, :logo, :chopper_icon, :goat_icon, :crate, :chute
 
   # Panel layout, shared with View.
   HUD_BOX_Y  = HUD_Y + 8
@@ -53,6 +53,11 @@ class Art
   EAGLE_H = 34
   RAVEN_W = 32
   RAVEN_H = 20
+  CRATE_W = 56               # drawn at twice its on-screen size
+  CRATE_H = 80               # snow cap above the box, icicles below
+  CRATE_BOX_Y = 12           # top of the box inside the texture
+  CHUTE_W = 60
+  CHUTE_H = 50
 
   GOAT_COATS = [[0.97, 0.96, 0.93], [0.96, 0.88, 0.72], [0.82, 0.74, 0.64]]
 
@@ -107,6 +112,8 @@ class Art
     @glow      = build_soft(32, 1.6, 1.0, 1.0, 1.0, 0.9)
     @smoke     = build_soft(32, 1.1, 1.0, 1.0, 1.0, 0.55)
     @debris    = build_debris
+    @crate     = build_crate
+    @chute     = build_chute
     @feather   = build_feather
     @chopper_icon = build_chopper_icon
     @goat_icon = build_goat_icon
@@ -851,6 +858,146 @@ class Art
     c.capsule(4.5, 6.0, 4.5, 15.0, 0.6, 1.0, 0.6, 0.55, 0.5)
     c.capsule(6.0, 5.0, 8.0, 1.5, 0.6, 0.2, 0.18, 0.16, 1.0)
     c.glow_blend(8.0, 1.5, 3.0, 1.5, 1.0, 0.75, 0.3, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # An arctic supply crate, at twice its on-screen size: cold, weathered
+  # planks in a dark frame, a stenciled snowflake, rime frost creeping in
+  # from the edges, a lumpy cap of snow on the lid and icicles under it.
+  def build_crate
+    w = CRATE_W
+    c = Canvas.new(w, CRATE_H)
+    x0 = 2.0
+    x1 = w - 2.0
+    y0 = CRATE_BOX_Y.to_f
+    y1 = y0 + (x1 - x0)
+    wood = [0.56, 0.46, 0.38]
+    dark = [0.30, 0.26, 0.24]
+    c.shadow_poly([[x0 + 2.0, y0 + 3.0], [x1 + 1.0, y0 + 3.0], [x1 + 1.0, y1 + 2.0], [x0 + 2.0, y1 + 2.0]], 2.0, 0.3, 0.5)
+    c.plastic_poly([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 2.0, wood[0], wood[1], wood[2], 1.0, 3.0)
+    c.grain(x0.to_i, y0.to_i, (x1 - x0).to_i, (y1 - y0).to_i, 0.18, 41, 0.35)
+    # Plank seams.
+    y = y0 + 13.0
+    while y < y1 - 8.0
+      c.capsule(x0 + 5.0, y, x1 - 5.0, y, 0.7, 0.0, 0.0, 0.0, 0.3)
+      y += 10.0
+    end
+    # Frame boards.
+    c.box(x0, y0, x1 - x0, 6.0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    c.box(x0, y1 - 6.0, x1 - x0, 6.0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    c.box(x0, y0, 6.0, y1 - y0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    c.box(x1 - 6.0, y0, 6.0, y1 - y0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    # Stenciled snowflake: six arms, each with a pair of barbs.
+    cx = w / 2.0
+    cy = (y0 + y1) / 2.0
+    i = 0
+    while i < 6
+      a = i * Math::PI / 3.0 - Math::PI / 2.0
+      ca = Math.cos(a)
+      sa = Math.sin(a)
+      c.capsule(cx, cy, cx + ca * 15.0, cy + sa * 15.0, 1.5, 0.93, 0.96, 1.0, 0.92)
+      k = 0
+      while k < 2
+        bx = cx + ca * (7.0 + k * 4.5)
+        by = cy + sa * (7.0 + k * 4.5)
+        len = 4.5 - k * 1.2
+        b1 = a + 0.75
+        b2 = a - 0.75
+        c.capsule(bx, by, bx + Math.cos(b1) * len, by + Math.sin(b1) * len, 1.1, 0.93, 0.96, 1.0, 0.92)
+        c.capsule(bx, by, bx + Math.cos(b2) * len, by + Math.sin(b2) * len, 1.1, 0.93, 0.96, 1.0, 0.92)
+        k += 1
+      end
+      i += 1
+    end
+    c.disc(cx, cy, 2.6, 0.93, 0.96, 1.0, 0.95)
+    # Frosted bolts in the corners.
+    rivet(c, x0 + 3.0, y0 + 3.0, 1.8)
+    rivet(c, x1 - 3.0, y0 + 3.0, 1.8)
+    rivet(c, x0 + 3.0, y1 - 3.0, 1.8)
+    rivet(c, x1 - 3.0, y1 - 3.0, 1.8)
+    # Rime: pale specks thickest along the edges, a bluish bloom at the rim.
+    rng = Random.new(77)
+    n = 0
+    while n < 150
+      px = x0 + rng.rand * (x1 - x0)
+      py = y0 + rng.rand * (y1 - y0)
+      edge = [px - x0, x1 - px, py - y0, y1 - py].min
+      if edge < 9.0 && rng.rand * 9.0 > edge
+        c.disc(px, py, 0.6 + rng.rand * 1.1, 0.88, 0.94, 1.0, 0.35 + rng.rand * 0.45)
+      end
+      n += 1
+    end
+    c.glow_blend(x0, y1, 12.0, 1.6, 0.85, 0.93, 1.0, 0.35)
+    c.glow_blend(x1, y1, 10.0, 1.6, 0.85, 0.93, 1.0, 0.3)
+    # Icicles under the bottom board.
+    ice = [[8.0, 8.0], [15.0, 12.0], [21.0, 6.0], [33.0, 10.0], [40.0, 14.0], [47.0, 7.0]]
+    ice.each do |e|
+      ix = e[0]
+      len = e[1]
+      c.poly([[ix - 2.4, y1 - 1.0], [ix + 2.4, y1 - 1.0], [ix + 0.3, y1 + len]], 0.4, 0.78, 0.90, 1.0, 0.9)
+      c.capsule(ix - 0.8, y1, ix - 0.2, y1 + len * 0.6, 0.6, 1.0, 1.0, 1.0, 0.75)
+    end
+    c.capsule(x0 + 3.0, y1 - 0.5, x1 - 3.0, y1 - 0.5, 1.4, 0.88, 0.95, 1.0, 0.85)
+    # Snow piled on the lid, spilling a little over the sides.
+    c.shadow_ellipse(cx, y0 + 3.0, 26.0, 4.0, 2.0, 0.35, 0.5)
+    lumps = [[5.0, 2.0, 6.0, 4.5], [13.0, 0.0, 8.0, 6.5], [24.0, -1.0, 9.0, 7.5], [35.0, 0.0, 9.0, 7.0],
+             [45.0, 1.0, 7.0, 5.5], [52.0, 3.0, 4.5, 4.0]]
+    lumps.each do |l|
+      c.ellipse(l[0], y0 + l[1] + 1.5, l[2], l[3], 0.70, 0.80, 0.92, 1.0)
+    end
+    lumps.each do |l|
+      c.ellipse(l[0], y0 + l[1], l[2] - 0.8, l[3] - 1.0, 0.97, 0.98, 1.0, 1.0)
+    end
+    c.box(x0 + 1.0, y0, x1 - x0 - 2.0, 3.5, 1.5, 0.97, 0.98, 1.0, 1.0)
+    c.capsule(x0 + 1.5, y0 + 1.0, x0 + 1.5, y0 + 9.0, 1.6, 0.95, 0.97, 1.0, 1.0)
+    c.capsule(x1 - 1.5, y0 + 1.0, x1 - 1.5, y0 + 6.0, 1.5, 0.95, 0.97, 1.0, 1.0)
+    c.glow_blend(20.0, y0 - 3.0, 10.0, 1.8, 1.0, 1.0, 1.0, 0.5)
+    c.to_texture(@renderer, true)
+  end
+
+  # A striped canopy with its shroud lines running down to the bottom
+  # middle of the texture, where the crate hangs.
+  def build_chute
+    c = Canvas.new(CHUTE_W, CHUTE_H)
+    cx = CHUTE_W / 2.0
+    cy = 22.0
+    rx = 28.0
+    ry = 20.0
+    lo = [0.92, 0.94, 0.96]
+    hi = [0.88, 0.25, 0.22]
+    # Shroud lines first, so the canopy sits over their tops.
+    k = 0
+    while k <= 6
+      lx = cx - rx + 2.0 + k * (rx * 2.0 - 4.0) / 6.0
+      c.capsule(lx, cy + 2.0, cx, CHUTE_H - 1.0, 0.45, 0.25, 0.22, 0.20, 0.85)
+      k += 1
+    end
+    # Canopy panels: vertical slices of a half ellipse, alternating colors,
+    # each with a scalloped hem.
+    n = 6
+    i = 0
+    while i < n
+      a0 = Math::PI + i * Math::PI / n
+      a1 = Math::PI + (i + 1) * Math::PI / n
+      pts = []
+      j = 0
+      while j <= 6
+        a = a0 + (a1 - a0) * j / 6.0
+        pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry])
+        j += 1
+      end
+      x0 = cx + Math.cos(a0) * rx
+      x1 = cx + Math.cos(a1) * rx
+      pts.push([x1, cy + 1.0])
+      pts.push([(x0 + x1) / 2.0, cy + 4.0])
+      pts.push([x0, cy + 1.0])
+      col = i % 2 == 0 ? hi : lo
+      c.plastic_poly(pts, 0.6, col[0], col[1], col[2], 1.0, 2.5)
+      i += 1
+    end
+    # Shading: light from the upper left, the hem darker.
+    c.glow_blend(cx - 9.0, cy - 12.0, 14.0, 1.6, 1.0, 1.0, 1.0, 0.25)
+    c.capsule(cx - rx + 2.0, cy + 1.5, cx + rx - 2.0, cy + 1.5, 1.2, 0.0, 0.0, 0.0, 0.18)
     c.to_texture(@renderer, true)
   end
 

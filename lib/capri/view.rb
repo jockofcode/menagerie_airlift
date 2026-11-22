@@ -3,8 +3,8 @@
 # the trailhead sign, drifts and caves, goats, yetis, birds, ordnance, the
 # chopper with its rotors and shadow, particles and popups, the status
 # panel with its radar, and the screen overlays (title with high scores,
-# mission intro, chopper down, mission results, game over, initials
-# entry, pause).
+# mission intro, chopper down, mission results, the supply drop bonus
+# round, game over, initials entry, pause).
 class View
   def initialize(renderer, art)
     @r = renderer
@@ -136,6 +136,7 @@ class View
     draw_scenery(game, t, night)
     draw_ground_things(game, t)
     draw_actors(game, t)
+    draw_crates(game)
     draw_chopper(game, t)
     draw_particles(game)
     draw_popups(game)
@@ -356,6 +357,29 @@ class View
     end
   end
 
+  def draw_crates(game)
+    # Supply crates swinging under their parachutes.
+    half = CRATE_SIZE / 2.0
+    game.crates.each do |k|
+      deg = Math.sin(k[:sway]) * 9.0
+      top_x = sx(k[:x]) - Math.sin(deg * Math::PI / 180.0) * half
+      top_y = k[:y] + @oy - Math.cos(deg * Math::PI / 180.0) * half
+      chute = @art.chute
+      chute.set_color_mod(@lr, @lg, @lb)
+      chute.set_alpha_mod(255)
+      @r.draw_texture(chute, (top_x - Art::CHUTE_W / 2.0).round, (top_y - Art::CHUTE_H + 2.0).round,
+                      w: Art::CHUTE_W, h: Art::CHUTE_H, angle: deg, center: [Art::CHUTE_W / 2, Art::CHUTE_H - 2])
+      # The texture is the box plus its snow cap and icicles, at twice the
+      # box's on-screen size; place it so the box sits on (x, y).
+      k2 = CRATE_SIZE / (Art::CRATE_W - 4.0)
+      th = Art::CRATE_H * k2
+      off = (Art::CRATE_H / 2.0 - Art::CRATE_BOX_Y - (Art::CRATE_W - 4.0) / 2.0) * k2
+      r = deg * Math::PI / 180.0
+      sprite_lit(@art.crate, sx(k[:x]) - Math.sin(r) * off, k[:y] + @oy + Math.cos(r) * off,
+                 Art::CRATE_W * k2, th, deg, false, 255)
+    end
+  end
+
   def draw_chopper(game, t)
     c = game.chopper
     return unless c.alive
@@ -539,6 +563,27 @@ class View
       shadowed(@font_mid, "LOST  #{game.mission_lost}", cx + 120, 220, 255, 130, 120, :center)
       shadowed(@font_mid, "BONUS  #{num(game.mission_bonus)}", cx, 290, 255, 255, 255, :center)
       shadowed(@font_hud, "NEXT MISSION: MORE YETIS, HUNGRIER EAGLES", cx, 360, 200, 200, 210, :center) if game.screen_ms > 1500.0
+    elsif scr == :bonus
+      if game.screen_ms < CRATE_INTRO_MS + 400.0
+        k = game.screen_ms / (CRATE_INTRO_MS + 400.0)
+        a = k < 0.12 ? k / 0.12 : (k > 0.8 ? (1.0 - k) / 0.2 : 1.0)
+        a = (a * 255.0).to_i
+        text(@font_big, "SUPPLY DROP", cx + 3, 183, 0, 0, 0, a * 2 / 3, :center)
+        text(@font_big, "SUPPLY DROP", cx, 180, 255, 220, 120, a, :center)
+        text(@font_mid, "CATCH THE CRATES BEFORE THEY HIT THE GROUND", cx + 2, 252, 0, 0, 0, a * 2 / 3, :center)
+        text(@font_mid, "CATCH THE CRATES BEFORE THEY HIT THE GROUND", cx, 250, 255, 255, 255, a, :center)
+        text(@font_hud, "#{SCORE_CRATE} A CRATE   #{num(SCORE_CRATE_ALL)} FOR ALL #{CRATE_COUNT}", cx, 310, 200, 200, 210, a, :center)
+      end
+      if game.crates_done?
+        dim_field(110)
+        all = game.crates_caught == CRATE_COUNT
+        shadowed(@font_big, all ? "ALL CRATES CAUGHT" : "SUPPLY DROP OVER", cx, 140, 255, 230, 120, :center)
+        shadowed(@font_mid, "CAUGHT  #{game.crates_caught}", cx - 120, 230, 140, 240, 160, :center)
+        shadowed(@font_mid, "SMASHED  #{game.crates_missed}", cx + 120, 230, 255, 130, 120, :center)
+        shadowed(@font_mid, "BONUS  #{num(game.crate_score)}", cx, 300, 255, 255, 255, :center)
+      elsif game.screen_ms > CRATE_INTRO_MS
+        shadowed(@font_mid, "CRATES  #{game.crates_caught} / #{CRATE_COUNT}", 24, 16, 255, 230, 140, :left)
+      end
     elsif scr == :game_over
       dim_field(120)
       shadowed(@font_big, "GAME OVER", cx, 90, 255, 110, 100, :center)
