@@ -53,7 +53,9 @@ class Art
   EAGLE_H = 34
   RAVEN_W = 32
   RAVEN_H = 20
-  CRATE_W = 28
+  CRATE_W = 56               # drawn at twice its on-screen size
+  CRATE_H = 80               # snow cap above the box, icicles below
+  CRATE_BOX_Y = 12           # top of the box inside the texture
   CHUTE_W = 60
   CHUTE_H = 50
 
@@ -842,36 +844,97 @@ class Art
     c.to_texture(@renderer, true)
   end
 
-  # A wooden supply crate: planked sides, a cross brace, a stenciled star.
+  # An arctic supply crate, at twice its on-screen size: cold, weathered
+  # planks in a dark frame, a stenciled snowflake, rime frost creeping in
+  # from the edges, a lumpy cap of snow on the lid and icicles under it.
   def build_crate
     w = CRATE_W
-    c = Canvas.new(w, w)
-    wood = [0.66, 0.48, 0.27]
-    c.plastic_poly([[1.0, 1.0], [27.0, 1.0], [27.0, 27.0], [1.0, 27.0]], 1.5, wood[0], wood[1], wood[2], 1.0, 2.0)
-    c.grain(2, 2, 24, 24, 0.3, 41, 0.3)
-    y = 9.5
-    while y < 26.0
-      c.capsule(3.0, y, 25.0, y, 0.5, 0.0, 0.0, 0.0, 0.25)
-      y += 8.5
+    c = Canvas.new(w, CRATE_H)
+    x0 = 2.0
+    x1 = w - 2.0
+    y0 = CRATE_BOX_Y.to_f
+    y1 = y0 + (x1 - x0)
+    wood = [0.56, 0.46, 0.38]
+    dark = [0.30, 0.26, 0.24]
+    c.shadow_poly([[x0 + 2.0, y0 + 3.0], [x1 + 1.0, y0 + 3.0], [x1 + 1.0, y1 + 2.0], [x0 + 2.0, y1 + 2.0]], 2.0, 0.3, 0.5)
+    c.plastic_poly([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 2.0, wood[0], wood[1], wood[2], 1.0, 3.0)
+    c.grain(x0.to_i, y0.to_i, (x1 - x0).to_i, (y1 - y0).to_i, 0.18, 41, 0.35)
+    # Plank seams.
+    y = y0 + 13.0
+    while y < y1 - 8.0
+      c.capsule(x0 + 5.0, y, x1 - 5.0, y, 0.7, 0.0, 0.0, 0.0, 0.3)
+      y += 10.0
     end
-    dark = [wood[0] * 0.62, wood[1] * 0.62, wood[2] * 0.62]
-    c.capsule(4.0, 4.0, 24.0, 24.0, 1.8, dark[0], dark[1], dark[2], 1.0)
-    c.box(1.0, 1.0, 26.0, 4.0, 1.0, dark[0], dark[1], dark[2], 1.0)
-    c.box(1.0, 23.0, 26.0, 4.0, 1.0, dark[0], dark[1], dark[2], 1.0)
-    # Stenciled star in the clear quarter.
-    pts = []
+    # Frame boards.
+    c.box(x0, y0, x1 - x0, 6.0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    c.box(x0, y1 - 6.0, x1 - x0, 6.0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    c.box(x0, y0, 6.0, y1 - y0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    c.box(x1 - 6.0, y0, 6.0, y1 - y0, 1.5, dark[0], dark[1], dark[2], 1.0)
+    # Stenciled snowflake: six arms, each with a pair of barbs.
+    cx = w / 2.0
+    cy = (y0 + y1) / 2.0
     i = 0
-    while i < 10
-      a = -Math::PI / 2.0 + i * Math::PI / 5.0
-      rad = i % 2 == 0 ? 4.6 : 1.9
-      pts.push([19.5 + Math.cos(a) * rad, 11.0 + Math.sin(a) * rad])
+    while i < 6
+      a = i * Math::PI / 3.0 - Math::PI / 2.0
+      ca = Math.cos(a)
+      sa = Math.sin(a)
+      c.capsule(cx, cy, cx + ca * 15.0, cy + sa * 15.0, 1.5, 0.93, 0.96, 1.0, 0.92)
+      k = 0
+      while k < 2
+        bx = cx + ca * (7.0 + k * 4.5)
+        by = cy + sa * (7.0 + k * 4.5)
+        len = 4.5 - k * 1.2
+        b1 = a + 0.75
+        b2 = a - 0.75
+        c.capsule(bx, by, bx + Math.cos(b1) * len, by + Math.sin(b1) * len, 1.1, 0.93, 0.96, 1.0, 0.92)
+        c.capsule(bx, by, bx + Math.cos(b2) * len, by + Math.sin(b2) * len, 1.1, 0.93, 0.96, 1.0, 0.92)
+        k += 1
+      end
       i += 1
     end
-    c.poly(pts, 0.2, 0.95, 0.92, 0.80, 0.8)
-    rivet(c, 3.5, 3.5, 1.1)
-    rivet(c, 24.5, 3.5, 1.1)
-    rivet(c, 3.5, 24.5, 1.1)
-    rivet(c, 24.5, 24.5, 1.1)
+    c.disc(cx, cy, 2.6, 0.93, 0.96, 1.0, 0.95)
+    # Frosted bolts in the corners.
+    rivet(c, x0 + 3.0, y0 + 3.0, 1.8)
+    rivet(c, x1 - 3.0, y0 + 3.0, 1.8)
+    rivet(c, x0 + 3.0, y1 - 3.0, 1.8)
+    rivet(c, x1 - 3.0, y1 - 3.0, 1.8)
+    # Rime: pale specks thickest along the edges, a bluish bloom at the rim.
+    rng = Random.new(77)
+    n = 0
+    while n < 150
+      px = x0 + rng.rand * (x1 - x0)
+      py = y0 + rng.rand * (y1 - y0)
+      edge = [px - x0, x1 - px, py - y0, y1 - py].min
+      if edge < 9.0 && rng.rand * 9.0 > edge
+        c.disc(px, py, 0.6 + rng.rand * 1.1, 0.88, 0.94, 1.0, 0.35 + rng.rand * 0.45)
+      end
+      n += 1
+    end
+    c.glow_blend(x0, y1, 12.0, 1.6, 0.85, 0.93, 1.0, 0.35)
+    c.glow_blend(x1, y1, 10.0, 1.6, 0.85, 0.93, 1.0, 0.3)
+    # Icicles under the bottom board.
+    ice = [[8.0, 8.0], [15.0, 12.0], [21.0, 6.0], [33.0, 10.0], [40.0, 14.0], [47.0, 7.0]]
+    ice.each do |e|
+      ix = e[0]
+      len = e[1]
+      c.poly([[ix - 2.4, y1 - 1.0], [ix + 2.4, y1 - 1.0], [ix + 0.3, y1 + len]], 0.4, 0.78, 0.90, 1.0, 0.9)
+      c.capsule(ix - 0.8, y1, ix - 0.2, y1 + len * 0.6, 0.6, 1.0, 1.0, 1.0, 0.75)
+    end
+    c.capsule(x0 + 3.0, y1 - 0.5, x1 - 3.0, y1 - 0.5, 1.4, 0.88, 0.95, 1.0, 0.85)
+    # Snow piled on the lid, spilling a little over the sides.
+    c.shadow_ellipse(cx, y0 + 3.0, 26.0, 4.0, 2.0, 0.35, 0.5)
+    lumps = [[5.0, 2.0, 6.0, 4.5], [13.0, 0.0, 8.0, 6.5], [24.0, -1.0, 9.0, 7.5], [35.0, 0.0, 9.0, 7.0],
+             [45.0, 1.0, 7.0, 5.5], [52.0, 3.0, 4.5, 4.0]]
+    lumps.each do |l|
+      c.ellipse(l[0], y0 + l[1] + 1.5, l[2], l[3], 0.70, 0.80, 0.92, 1.0)
+    end
+    lumps.each do |l|
+      c.ellipse(l[0], y0 + l[1], l[2] - 0.8, l[3] - 1.0, 0.97, 0.98, 1.0, 1.0)
+    end
+    c.box(x0 + 1.0, y0, x1 - x0 - 2.0, 3.5, 1.5, 0.97, 0.98, 1.0, 1.0)
+    c.capsule(x0 + 1.5, y0 + 1.0, x0 + 1.5, y0 + 9.0, 1.6, 0.95, 0.97, 1.0, 1.0)
+    c.capsule(x1 - 1.5, y0 + 1.0, x1 - 1.5, y0 + 6.0, 1.5, 0.95, 0.97, 1.0, 1.0)
+    c.glow_blend(20.0, y0 - 3.0, 10.0, 1.8, 1.0, 1.0, 1.0, 0.5)
     c.to_texture(@renderer, true)
   end
 

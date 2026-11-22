@@ -345,7 +345,14 @@ class View
       chute.set_alpha_mod(255)
       @r.draw_texture(chute, (top_x - Art::CHUTE_W / 2.0).round, (top_y - Art::CHUTE_H + 2.0).round,
                       w: Art::CHUTE_W, h: Art::CHUTE_H, angle: deg, center: [Art::CHUTE_W / 2, Art::CHUTE_H - 2])
-      sprite_lit(@art.crate, sx(k[:x]), k[:y] + @oy, CRATE_SIZE, CRATE_SIZE, deg, false, 255)
+      # The texture is the box plus its snow cap and icicles, at twice the
+      # box's on-screen size; place it so the box sits on (x, y).
+      k2 = CRATE_SIZE / (Art::CRATE_W - 4.0)
+      th = Art::CRATE_H * k2
+      off = (Art::CRATE_H / 2.0 - Art::CRATE_BOX_Y - (Art::CRATE_W - 4.0) / 2.0) * k2
+      r = deg * Math::PI / 180.0
+      sprite_lit(@art.crate, sx(k[:x]) - Math.sin(r) * off, k[:y] + @oy + Math.cos(r) * off,
+                 Art::CRATE_W * k2, th, deg, false, 255)
     end
   end
 
