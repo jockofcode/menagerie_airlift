@@ -96,6 +96,14 @@ Land gently and on the level: touching down faster than a slow sink, while still
 sideways, or with the skids across a slope wrecks the chopper. Goats only come to a chopper that
 has landed on their own ledge, and they hop off only on the pad at the barn.
 
+### Supply drop
+
+After each mission's results comes a bonus round over the valley by the barn: twelve crates
+parachute down, and you catch them by flying the chopper into them before they smash on the
+ground. Each one is worth 300 points, and all twelve earn another 3,000. Nothing attacks
+you, the cannon and charges are stowed, and a hard landing just bumps you. Crates fall a little
+faster and come a little closer together in each later mission.
+
 ## Laya on the title screen
 
 The attract demo is piloted with help from [Laya](../laya), a small on-device decision model.
@@ -150,7 +158,7 @@ Debug environment variables for the game binary:
 | `CAPRI_LAYA_MODEL=dir` | Laya weights directory (default `../laya/models/laya-multilingual`) |
 | `CAPRI_SHOT=/path.png` | Capture the window after `CAPRI_SHOT_FRAME` frames (default 240), then quit |
 | `CAPRI_MISSION=n` | Start a game on mission `n` |
-| `CAPRI_SCREEN=results\|dead\|game_over\|entry` | Jump straight to that screen |
+| `CAPRI_SCREEN=results\|bonus\|dead\|game_over\|entry` | Jump straight to that screen |
 
 The SDL log is written to `/tmp/sdl_capricopter.log`, including how long each piece of art took
 to generate.

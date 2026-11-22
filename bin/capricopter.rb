@@ -17,7 +17,7 @@ SDL::Log.open("/tmp/sdl_capricopter.log")
 # Debug aids: CAPRI_SHOT=/path.png captures the window after CAPRI_SHOT_FRAME
 # frames (default 240) and quits; CAPRI_AUTOPLAY=1 lets the demo AI fly a
 # real game; CAPRI_MISSION=n starts a game on mission n;
-# CAPRI_SCREEN=results|dead|game_over|entry jumps to that screen.
+# CAPRI_SCREEN=results|bonus|dead|game_over|entry jumps to that screen.
 shot_path  = ENV["CAPRI_SHOT"]
 shot_frame = ENV["CAPRI_SHOT_FRAME"] == nil ? 240 : ENV["CAPRI_SHOT_FRAME"].to_i
 autoplay   = ENV["CAPRI_AUTOPLAY"] != nil
@@ -116,7 +116,7 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
       game.set_fire(controls.held?(:fire))
       game.press_turn if controls.pressed?(:alt)
       if controls.pressed?(:start)
-        if game.screen == :play || game.screen == :intro
+        if game.screen == :play || game.screen == :intro || game.screen == :bonus
           menu.open
         else
           game.press_start
@@ -140,7 +140,7 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
     game.sounds.each { |s| rumble_for(controls, s) }
     game.sounds.clear
     scr = game.screen
-    flying = (scr == :play || scr == :intro) && !game.paused && !menu.open? && game.chopper.alive
+    flying = (scr == :play || scr == :intro || scr == :bonus) && !game.paused && !menu.open? && game.chopper.alive
     want_music = !game.paused && (scr == :title || scr == :results || scr == :game_over || scr == :entry)
     music.update(dt, want_music)
     if flying

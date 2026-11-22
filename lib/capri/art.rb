@@ -13,7 +13,7 @@ class Art
               :clouds, :cloud_spots, :terrain, :terrain_x, :terrain_top, :terrain_h, :trees, :tree_spots, :base, :pad, :sign, :drift,
               :cave, :chopper_side, :chopper_front, :rotor, :tail_rotor, :shadow, :goat,
               :yeti, :yeti_arm, :snowball, :eagle, :raven, :bullet, :bomb, :glow, :smoke, :debris, :feather,
-              :hud, :logo, :chopper_icon, :goat_icon
+              :hud, :logo, :chopper_icon, :goat_icon, :crate, :chute
 
   # Panel layout, shared with View.
   HUD_BOX_Y  = HUD_Y + 8
@@ -53,6 +53,9 @@ class Art
   EAGLE_H = 34
   RAVEN_W = 32
   RAVEN_H = 20
+  CRATE_W = 28
+  CHUTE_W = 60
+  CHUTE_H = 50
 
   GOAT_COATS = [[0.97, 0.96, 0.93], [0.96, 0.88, 0.72], [0.82, 0.74, 0.64]]
 
@@ -107,6 +110,8 @@ class Art
     @glow      = build_soft(32, 1.6, 1.0, 1.0, 1.0, 0.9)
     @smoke     = build_soft(32, 1.1, 1.0, 1.0, 1.0, 0.55)
     @debris    = build_debris
+    @crate     = build_crate
+    @chute     = build_chute
     @feather   = build_feather
     @chopper_icon = build_chopper_icon
     @goat_icon = build_goat_icon
@@ -834,6 +839,85 @@ class Art
     c.capsule(4.5, 6.0, 4.5, 15.0, 0.6, 1.0, 0.6, 0.55, 0.5)
     c.capsule(6.0, 5.0, 8.0, 1.5, 0.6, 0.2, 0.18, 0.16, 1.0)
     c.glow_blend(8.0, 1.5, 3.0, 1.5, 1.0, 0.75, 0.3, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # A wooden supply crate: planked sides, a cross brace, a stenciled star.
+  def build_crate
+    w = CRATE_W
+    c = Canvas.new(w, w)
+    wood = [0.66, 0.48, 0.27]
+    c.plastic_poly([[1.0, 1.0], [27.0, 1.0], [27.0, 27.0], [1.0, 27.0]], 1.5, wood[0], wood[1], wood[2], 1.0, 2.0)
+    c.grain(2, 2, 24, 24, 0.3, 41, 0.3)
+    y = 9.5
+    while y < 26.0
+      c.capsule(3.0, y, 25.0, y, 0.5, 0.0, 0.0, 0.0, 0.25)
+      y += 8.5
+    end
+    dark = [wood[0] * 0.62, wood[1] * 0.62, wood[2] * 0.62]
+    c.capsule(4.0, 4.0, 24.0, 24.0, 1.8, dark[0], dark[1], dark[2], 1.0)
+    c.box(1.0, 1.0, 26.0, 4.0, 1.0, dark[0], dark[1], dark[2], 1.0)
+    c.box(1.0, 23.0, 26.0, 4.0, 1.0, dark[0], dark[1], dark[2], 1.0)
+    # Stenciled star in the clear quarter.
+    pts = []
+    i = 0
+    while i < 10
+      a = -Math::PI / 2.0 + i * Math::PI / 5.0
+      rad = i % 2 == 0 ? 4.6 : 1.9
+      pts.push([19.5 + Math.cos(a) * rad, 11.0 + Math.sin(a) * rad])
+      i += 1
+    end
+    c.poly(pts, 0.2, 0.95, 0.92, 0.80, 0.8)
+    rivet(c, 3.5, 3.5, 1.1)
+    rivet(c, 24.5, 3.5, 1.1)
+    rivet(c, 3.5, 24.5, 1.1)
+    rivet(c, 24.5, 24.5, 1.1)
+    c.to_texture(@renderer, true)
+  end
+
+  # A striped canopy with its shroud lines running down to the bottom
+  # middle of the texture, where the crate hangs.
+  def build_chute
+    c = Canvas.new(CHUTE_W, CHUTE_H)
+    cx = CHUTE_W / 2.0
+    cy = 22.0
+    rx = 28.0
+    ry = 20.0
+    lo = [0.92, 0.94, 0.96]
+    hi = [0.88, 0.25, 0.22]
+    # Shroud lines first, so the canopy sits over their tops.
+    k = 0
+    while k <= 6
+      lx = cx - rx + 2.0 + k * (rx * 2.0 - 4.0) / 6.0
+      c.capsule(lx, cy + 2.0, cx, CHUTE_H - 1.0, 0.45, 0.25, 0.22, 0.20, 0.85)
+      k += 1
+    end
+    # Canopy panels: vertical slices of a half ellipse, alternating colors,
+    # each with a scalloped hem.
+    n = 6
+    i = 0
+    while i < n
+      a0 = Math::PI + i * Math::PI / n
+      a1 = Math::PI + (i + 1) * Math::PI / n
+      pts = []
+      j = 0
+      while j <= 6
+        a = a0 + (a1 - a0) * j / 6.0
+        pts.push([cx + Math.cos(a) * rx, cy + Math.sin(a) * ry])
+        j += 1
+      end
+      x0 = cx + Math.cos(a0) * rx
+      x1 = cx + Math.cos(a1) * rx
+      pts.push([x1, cy + 1.0])
+      pts.push([(x0 + x1) / 2.0, cy + 4.0])
+      pts.push([x0, cy + 1.0])
+      col = i % 2 == 0 ? hi : lo
+      c.plastic_poly(pts, 0.6, col[0], col[1], col[2], 1.0, 2.5)
+      i += 1
+    end
+    # Shading: light from the upper left, the hem darker.
+    c.glow_blend(cx - 9.0, cy - 12.0, 14.0, 1.6, 1.0, 1.0, 1.0, 0.25)
+    c.capsule(cx - rx + 2.0, cy + 1.5, cx + rx - 2.0, cy + 1.5, 1.2, 0.0, 0.0, 0.0, 0.18)
     c.to_texture(@renderer, true)
   end
 
