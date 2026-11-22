@@ -4,8 +4,14 @@
 # chopper with its rotors and shadow, particles and popups, the status
 # panel with its radar, and the screen overlays (title with high scores,
 # mission intro, chopper down, mission results, game over, initials
-# entry, pause).
+# entry, pause). On the arctic and Cascadia levels the same code draws
+# their art sets (Art picks them by LEVEL), with northern lights at night
+# over the ice.
 class View
+  # What's next, for the results screen, by level.
+  LEVEL_TEASERS = ["THE MOUNTAIN -- GOATS, YETIS, EAGLES", "THE ARCTIC -- PENGUINS, YETIS, SEAGULLS",
+                   "CASCADIA -- MARMOTS, BIGFOOT, OWLS"]
+
   def initialize(renderer, art)
     @r = renderer
     @art = art
@@ -165,6 +171,13 @@ class View
       @art.stars.set_alpha_mod(c255(night))
       @r.draw_texture(@art.stars, (0.0 - @cam * 0.02) % WINDOW_W - WINDOW_W, 0)
       @r.draw_texture(@art.stars, (0.0 - @cam * 0.02) % WINDOW_W, 0)
+      if arctic?
+        # Northern lights, drifting slowly.
+        @art.aurora.set_alpha_mod(c255(night * 0.9))
+        ax = (0.0 - @cam * 0.03 - t * 0.004) % WINDOW_W
+        @r.draw_texture(@art.aurora, ax.round - WINDOW_W, 10)
+        @r.draw_texture(@art.aurora, ax.round, 10)
+      end
     end
     # Sun sinks as the mission wears on; the moon rises in its place.
     day = game.day
@@ -249,9 +262,37 @@ class View
         else
           sprite_lit(tex, sx(k[:x]), cy, DRIFT_W, DRIFT_H, 0.0, false, 255)
         end
+        draw_stump_eyes(k, sx(k[:x]) - DRIFT_W / 2.0, cy - DRIFT_H / 2.0, t) if cascadia?
       else
         sprite_lit(@art.cave, sx(k[:x]), cy, DRIFT_W, DRIFT_H, 0.0, false, 255)
       end
+    end
+  end
+
+  # Marmot eyes in a sealed stump's hollow: each pair glances side to side
+  # at its own pace and blinks out at random moments. Unlit, so they glint at
+  # night too.
+  def draw_stump_eyes(k, left, top, t)
+    i = 0
+    while i < Art::STUMP_EYES.length
+      e = Art::STUMP_EYES[i]
+      ph = k[:x] * 0.013 + i * 2.1
+      look = Math.sin(t * (0.0009 + i * 0.0003) + ph) + 0.4 * Math.sin(t * 0.0023 + ph * 1.7)
+      shift = look * 1.6
+      shift = 1.6 if shift > 1.6
+      shift = -1.6 if shift < -1.6
+      # Blinks at random: time in quarter-second slots, and a hash of the
+      # stump, the pair and the slot says whether the eyes are shut for it.
+      slot = ((t + ph * 1000.0) / 250.0).floor
+      h = Math.sin(slot * 12.9898 + k[:x] * 0.0731 + i * 78.233) * 43758.5453
+      shut = h - h.floor < 0.07
+      unless shut
+        x = left + e[0] + shift
+        y = top + e[1]
+        sprite(@art.eye, x, y, 2.8, 2.8, 255, 255, 255, 255)
+        sprite(@art.eye, x + Art::STUMP_EYE_GAP, y, 2.8, 2.8, 255, 255, 255, 255)
+      end
+      i += 1
     end
   end
 
@@ -523,10 +564,12 @@ class View
       a = (a * 255.0).to_i
       text(@font_big, "MISSION #{game.mission}", cx + 3, 183, 0, 0, 0, a * 2 / 3, :center)
       text(@font_big, "MISSION #{game.mission}", cx, 180, 140, 220, 255, a, :center)
-      line = "#{GOATS_TOTAL} GOATS SNOWED IN ON #{LEDGES.length} LEDGES"
+      line = "#{GOATS_TOTAL} GOATS SNOWED IN ON #{ledges.length} LEDGES"
+      line = "#{GOATS_TOTAL} PENGUINS ICED IN ON #{ledges.length} ICE SHELVES" if arctic?
+      line = "#{GOATS_TOTAL} MARMOTS TRAPPED IN #{ledges.length} HOLLOW STUMPS" if cascadia?
       text(@font_mid, line, cx + 2, 252, 0, 0, 0, a * 2 / 3, :center)
       text(@font_mid, line, cx, 250, 255, 255, 255, a, :center)
-      text(@font_hud, "BRING THEM DOWN TO THE BARN", cx, 310, 255, 220, 120, a, :center) if blink(t, 400.0)
+      text(@font_hud, level_text("BRING THEM DOWN TO THE BARN", "BLAST OPEN THE IGLOOS AND FLY THEM TO THE STATION", "BEWARE OF BIGFOOT -- FLY THEM TO THE RANGER STATION"), cx, 310, 255, 220, 120, a, :center) if blink(t, 400.0)
     elsif scr == :dead
       if game.screen_ms > 300.0
         shadowed(@font_big, "CHOPPER DOWN", cx, 180, 255, 110, 100, :center)
@@ -534,11 +577,11 @@ class View
       end
     elsif scr == :results
       dim_field(110)
-      shadowed(@font_big, game.perfect ? "EVERY GOAT HOME!" : "MISSION COMPLETE", cx, 120, 255, 230, 120, :center)
+      shadowed(@font_big, game.perfect ? level_text("EVERY GOAT HOME!", "EVERY PENGUIN HOME!", "EVERY MARMOT HOME!") : "MISSION COMPLETE", cx, 120, 255, 230, 120, :center)
       shadowed(@font_mid, "RESCUED  #{game.mission_saved}", cx - 120, 220, 140, 240, 160, :center)
       shadowed(@font_mid, "LOST  #{game.mission_lost}", cx + 120, 220, 255, 130, 120, :center)
       shadowed(@font_mid, "BONUS  #{num(game.mission_bonus)}", cx, 290, 255, 255, 255, :center)
-      shadowed(@font_hud, "NEXT MISSION: MORE YETIS, HUNGRIER EAGLES", cx, 360, 200, 200, 210, :center) if game.screen_ms > 1500.0
+      shadowed(@font_hud, "NEXT MISSION: " + LEVEL_TEASERS[level_for(game.mission + 1, game.start_level)], cx, 360, 200, 200, 210, :center) if game.screen_ms > 1500.0
     elsif scr == :game_over
       dim_field(120)
       shadowed(@font_big, "GAME OVER", cx, 90, 255, 110, 100, :center)
@@ -579,17 +622,47 @@ class View
     dim_field(90)
     cx = WINDOW_W / 2
     @r.draw_texture(@art.logo, cx - Art::LOGO_W / 2, 50 + (pulse(t, 2600.0, 0.0, 6.0)).to_i)
-    shadowed(@font_big, "PRESS ENTER", cx, 270, 255, 255, 255, :center) if blink(t, 900.0)
-    draw_scores(game, cx, 340, t)
-    shadowed(@font_hud, "BLAST THE SNOW DRIFTS, LAND ON THE LEDGE, FLY THE GOATS HOME", cx, 522, 255, 220, 120, :center)
-    shadowed(@font_hud, "ARROWS / WASD FLY     SPACE FIRE     X FACE THE CAMERA FOR CHARGES", cx, 550, 200, 200, 210, :center)
+    shadowed(@font_big, "PRESS ENTER", cx, 238, 255, 255, 255, :center) if blink(t, 900.0)
+    draw_level_pick(game, cx, 302, t)
+    draw_scores(game, cx, 358, t)
+    line = level_text("BLAST THE SNOW DRIFTS, LAND ON THE LEDGE, FLY THE GOATS HOME",
+                      "BLAST OPEN THE IGLOOS, LAND ON THE ICE SHELF, FLY THE PENGUINS HOME",
+                      "BLAST OPEN THE STUMPS, LAND IN THE CLEARING, FLY THE MARMOTS HOME")
+    shadowed(@font_hud, line, cx, 532, 255, 220, 120, :center)
+    shadowed(@font_hud, "ARROWS / WASD FLY     SPACE FIRE     X FACE THE CAMERA FOR CHARGES", cx, 558, 200, 200, 210, :center)
+  end
+
+  # The level picker: every level's name, the picked one lit and
+  # bracketed, the others dim; left and right step through them.
+  def draw_level_pick(game, cx, y, t)
+    k = game.start_level
+    @r.draw_color(0, 0, 0, 110)
+    @r.fill_rect(cx - 330, y + 1, 660, 34)
+    i = 0
+    while i < LEVEL_COUNT
+      x = cx + (i - 1) * 215
+      if i == k
+        shadowed(@font_mid, "< #{LEVEL_NAMES[i]} >", x, y, 140, 220, 255, :center)
+      else
+        shadowed(@font_mid, LEVEL_NAMES[i], x, y, 120, 125, 140, :center)
+      end
+      i += 1
+    end
+    text(@font_pop, "LEFT / RIGHT PICKS THE FIRST LEVEL", cx, y + 37, 200, 200, 210, 255, :center)
+  end
+
+  # The line for the current level: the mountain's, the arctic's or Cascadia's.
+  def level_text(mountain, ice, forest)
+    return ice if arctic?
+    return forest if cascadia?
+    mountain
   end
 
   # Beside the high scores: who is flying the demo, and Laya's last call
   # (one bar per goal, the goal being flown lit).
   def draw_pilot(pilot)
     x = 28
-    y = 336
+    y = 348
     @r.draw_color(0, 0, 0, 120)
     @r.fill_rect(x - 12, y - 8, 290, 170)
     lit = pilot.laya?

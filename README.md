@@ -96,6 +96,27 @@ Land gently and on the level: touching down faster than a slow sink, while still
 sideways, or with the skids across a slope wrecks the chopper. Goats only come to a chopper that
 has landed on their own ledge, and they hop off only on the pad at the barn.
 
+## Levels
+
+Missions cycle through three levels: the mountain, the Arctic and Cascadia. On the title screen,
+Left and Right (or the d-pad) pick which one the game starts on, and the demo behind the title
+switches to show it. The rules, scoring and flying are the same everywhere; only the ground, the
+rescued animals and the villains change.
+
+**Penguin rescue (the Arctic).** Sixty-four penguins (kings, Adélies and rockhoppers) are iced
+into igloos on four ice shelves, with jagged pressure ridges and seracs between them and a glacier
+tongue running down to an orange research station with a radome tower and windsock. Yetis roam
+the ice here too, seagulls make the eagles' diving runs, and an aurora shimmers across the night
+sky as the mission wears on.
+
+**Marmot rescue (Cascadia).** Sixty-four marmots (hoary, yellow-bellied and Olympic) are trapped
+in hollow old-growth stumps, their doorways blocked by fallen logs, in clearings between rolling
+ridges of Douglas fir and red cedar under a snow-capped volcano. Bigfoot stalks the forest
+throwing pinecones, great horned owls stoop at the chopper, and the marmots scurry home to a log
+ranger station with a fire lookout.
+
+Action shots of all three levels are in [`assets/screenshots/action/`](assets/screenshots/action).
+
 ## Laya on the title screen
 
 The attract demo is piloted with help from [Laya](../laya), a small on-device decision model.
@@ -120,13 +141,14 @@ points elsewhere, `CAPRI_LAYA=0` turns Laya off, and `LAYA_BACKEND` picks its ba
 | `lib/capri/config.rb` | Every tunable, plus the mountain: ledges, terrain profile, `ground_y` lookup |
 | `lib/capri/game.rb` | Rules and the fixed-step simulation, screen flow, high scores, demo AI |
 | `lib/capri/canvas.rb` | CPU raster canvas: SDF shapes, shading, noise, text, texture upload |
-| `lib/capri/art.rb` | Skies, peaks, clouds, the mountain slices, barn, drifts, chopper, goats, yetis, birds, panel, logo |
+| `lib/capri/art.rb` | Skies, peaks, clouds, the mountain slices, barn, drifts, chopper, goats, yetis, birds, panel, logo, and the Arctic and Cascadia sets |
 | `lib/capri/laya_pilot.rb` | Laya's goal picks for the title demo, on a background thread |
 | `lib/capri/view.rb` | Per-frame drawing, parallax, status panel with the radar profile, overlays |
 | `lib/capri/sound.rb` | Synthesized sound effects (bleats, snowballs, screeches), rotor drone and chip tune |
 | `tools/make_icon.rb` | Paints `assets/icons` with the same rasterizer (run `tools/make_icon.sh`) |
 
-To reshape the mountain, edit `LEDGES` and `TERRAIN_PTS` in `config.rb`. The ledges are the
+To reshape the mountain, edit `MOUNTAIN_LEDGES` and `MOUNTAIN_PTS` in `config.rb`
+(`ARCTIC_PTS` for the ice, `CASCADIA_PTS` for the forest; all three share the ledges). The ledges are the
 flat stretches of the profile; the art, collisions, goats, yetis and AI all read the same
 heightfield.
 
@@ -135,7 +157,9 @@ heightfield.
 Headless soak test — the demo AI flies sorties for twelve simulated minutes while the test
 checks that nothing goes non-finite, the chopper stays above the ground and inside the world,
 every goat is always accounted for and some actually get rescued. `TRACE=1` prints each crash
-with the AI's state, and `SEED=n` flies a different (still repeatable) run:
+with the AI's state, `SEED=n` flies a different (still repeatable) run, and `MISSION=n`
+starts on mission `n`, and `LEVEL=n` starts the game on level `n` (0 the mountain, 1 the Arctic,
+2 Cascadia):
 
 ```sh
 spinel test/sim.rb -o build/sim && ./build/sim
@@ -149,7 +173,8 @@ Debug environment variables for the game binary:
 | `CAPRI_LAYA=0` | No Laya: the scripted AI flies the title demo alone |
 | `CAPRI_LAYA_MODEL=dir` | Laya weights directory (default `../laya/models/laya-multilingual`) |
 | `CAPRI_SHOT=/path.png` | Capture the window after `CAPRI_SHOT_FRAME` frames (default 240), then quit |
-| `CAPRI_MISSION=n` | Start a game on mission `n` |
+| `CAPRI_MISSION=n` | Start a game on mission `n` (missions cycle through the levels) |
+| `CAPRI_LEVEL=n` | Pick level `n` (0 mountain, 1 Arctic, 2 Cascadia) on the title screen |
 | `CAPRI_SCREEN=results\|dead\|game_over\|entry` | Jump straight to that screen |
 
 The SDL log is written to `/tmp/sdl_capricopter.log`, including how long each piece of art took

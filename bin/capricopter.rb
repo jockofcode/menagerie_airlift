@@ -67,6 +67,12 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
   pilot.start
   
   game = Game.new
+  # CAPRI_LEVEL=n starts with level n picked on the title screen
+  # (0 the mountain, 1 the arctic, 2 Cascadia).
+  if ENV["CAPRI_LEVEL"] != nil
+    n = ENV["CAPRI_LEVEL"].to_i
+    n.times { game.pick_level(1) }
+  end
   if start_mission > 0 || autoplay
     game.new_game
     game.skip_to(start_mission) if start_mission > 0
@@ -110,6 +116,8 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
     unless menu.open?
       game.entry_move(-1, 0) if controls.pressed?(:left)
       game.entry_move(1, 0) if controls.pressed?(:right)
+      game.pick_level(-1) if controls.pressed?(:left)
+      game.pick_level(1) if controls.pressed?(:right)
       game.entry_move(0, 1) if controls.pressed?(:up)
       game.entry_move(0, -1) if controls.pressed?(:down)
       game.press_fire if controls.pressed?(:fire)

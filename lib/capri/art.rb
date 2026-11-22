@@ -8,12 +8,46 @@
 # animation frames in three coats, yetis, snowballs, eagles, ravens,
 # ordnance, particles, the status panel with a radar profile of the
 # mountain, and the title logo.
+#
+# The arctic and Cascadia levels get their own sets, painted the same way
+# from their own heightfields. The arctic: tabular icebergs and pressure
+# ridges, northern lights, the ice sheet, seracs and inukshuks, the
+# research station, the pack-ice sign, igloos and their ruins, penguins in
+# three kinds and seagulls (the yetis are the mountain's). Cascadia: a
+# snow-capped volcano over a fir-serrated ridge, moss and loam over
+# columnar basalt, Douglas firs and red cedars, the ranger station with its
+# fire lookout, the old-growth sign, hollow stumps blocked by fallen logs
+# and their splintered remains, marmots in three coats, Bigfoot and his
+# pinecones, and great horned owls. Each has a status panel with its
+# ground in profile. The themed readers below return the set for the
+# current LEVEL.
 class Art
-  attr_reader :sky_day, :sky_dusk, :sky_night, :stars, :sun, :moon, :mountains_far, :mountains_near,
-              :clouds, :cloud_spots, :terrain, :terrain_x, :terrain_top, :terrain_h, :trees, :tree_spots, :base, :pad, :sign, :drift,
-              :cave, :chopper_side, :chopper_front, :rotor, :tail_rotor, :shadow, :goat,
-              :yeti, :yeti_arm, :snowball, :eagle, :raven, :bullet, :bomb, :glow, :smoke, :debris, :feather,
-              :hud, :logo, :chopper_icon, :goat_icon
+  attr_reader :sky_day, :sky_dusk, :sky_night, :stars, :sun, :moon, :aurora,
+              :clouds, :cloud_spots, :pad,
+              :chopper_side, :chopper_front, :rotor, :tail_rotor, :shadow,
+              :raven, :bullet, :bomb, :glow, :smoke, :debris, :feather,
+              :chopper_icon, :goat_icon, :eye
+
+  # Themed art: [mountain, arctic, Cascadia], picked by the current level.
+  def snowball; @snowball_l[LEVEL[0]]; end
+  def logo; @logo_l[LEVEL[0]]; end
+  def mountains_far; @far_l[LEVEL[0]]; end
+  def mountains_near; @near_l[LEVEL[0]]; end
+  def terrain; @terrain_l[LEVEL[0]]; end
+  def terrain_x; @terrain_x_l[LEVEL[0]]; end
+  def terrain_top; @terrain_top_l[LEVEL[0]]; end
+  def terrain_h; @terrain_h_l[LEVEL[0]]; end
+  def trees; @trees_l[LEVEL[0]]; end
+  def tree_spots; @tree_spots_l[LEVEL[0]]; end
+  def base; @base_l[LEVEL[0]]; end
+  def sign; @sign_l[LEVEL[0]]; end
+  def drift; @drift_l[LEVEL[0]]; end
+  def cave; @cave_l[LEVEL[0]]; end
+  def goat; @goat_l[LEVEL[0]]; end
+  def yeti; @yeti_l[LEVEL[0]]; end
+  def yeti_arm; @arm_l[LEVEL[0]]; end
+  def eagle; @eagle_l[LEVEL[0]]; end
+  def hud; @hud_l[LEVEL[0]]; end
 
   # Panel layout, shared with View.
   HUD_BOX_Y  = HUD_Y + 8
@@ -69,38 +103,61 @@ class Art
     @sky_dusk  = build_sky([0.26, 0.16, 0.46], [1.0, 0.60, 0.52])
     @sky_night = build_sky([0.01, 0.02, 0.08], [0.06, 0.10, 0.24])
     @sun       = build_soft(180, 1.6, 1.0, 0.95, 0.75, 1.0)
-    @mountains_far  = build_mountains(MOUNT_FAR_H, [0.62, 0.70, 0.86], [0.48, 0.56, 0.74], 3, false, 0.8)
-    @mountains_near = build_mountains(MOUNT_NEAR_H, [0.36, 0.44, 0.58], [0.24, 0.32, 0.44], 7, true, 0.6)
+    @far_l  = [build_mountains(MOUNT_FAR_H, [0.62, 0.70, 0.86], [0.48, 0.56, 0.74], 3, false, 0.8),
+               build_ice_range(MOUNT_FAR_H, 5, false), build_cascade_range(MOUNT_FAR_H, 13, false)]
+    @near_l = [build_mountains(MOUNT_NEAR_H, [0.36, 0.44, 0.58], [0.24, 0.32, 0.44], 7, true, 0.6),
+               build_ice_range(MOUNT_NEAR_H, 9, true), build_cascade_range(MOUNT_NEAR_H, 17, true)]
+    @aurora    = build_aurora
     @stars     = build_stars
     @moon      = build_moon
     @clouds    = [build_cloud(0), build_cloud(1), build_cloud(2)]
     @cloud_spots = plan_clouds
     SDL::Log.write("art: sky #{SDL::Screen.ticks - t} ms")
     t = SDL::Screen.ticks
-    @terrain = []
-    @terrain_x = []
-    @terrain_top = []
-    @terrain_h = []
-    build_terrain
-    @trees     = [build_tree(0), build_tree(1)]
-    @tree_spots = plan_trees
+    @terrain_l = []
+    @terrain_x_l = []
+    @terrain_top_l = []
+    @terrain_h_l = []
+    @tree_spots_l = []
+    lv = 0
+    while lv < LEVEL_COUNT
+      set_level(lv)
+      @terrain = []
+      @terrain_x = []
+      @terrain_top = []
+      @terrain_h = []
+      build_terrain
+      @terrain_l.push(@terrain)
+      @terrain_x_l.push(@terrain_x)
+      @terrain_top_l.push(@terrain_top)
+      @terrain_h_l.push(@terrain_h)
+      @tree_spots_l.push(plan_trees)
+      lv += 1
+    end
+    set_level(0)
+    @trees_l   = [[build_tree(0), build_tree(1)], [build_serac, build_inukshuk], [build_fir, build_cedar]]
     SDL::Log.write("art: mountain #{SDL::Screen.ticks - t} ms")
     t = SDL::Screen.ticks
-    @base      = build_base
+    @base_l    = [build_base, build_station, build_ranger_station]
     @pad       = build_pad
-    @sign      = build_sign
-    @drift     = build_drift
-    @cave      = build_cave
+    @sign_l    = [build_sign, build_ice_sign, build_forest_sign]
+    @drift_l   = [build_drift, build_igloo, build_stump]
+    @cave_l    = [build_cave, build_igloo_ruin, build_stump_ruin]
+    @eye       = build_eye
     @chopper_side  = build_chopper_side
     @chopper_front = build_chopper_front
     @rotor     = build_rotor
     @tail_rotor = build_tail_rotor
     @shadow    = build_shadow
-    @goat      = build_goat_frames
-    @yeti      = build_yeti
-    @yeti_arm  = build_yeti_arm
-    @snowball  = build_snowball
-    @eagle     = [build_eagle(0), build_eagle(1), build_eagle(2)]
+    @goat_l    = [build_goat_frames, build_penguin_frames, build_marmot_frames]
+    yeti = build_yeti(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN, false)
+    arm = build_yeti_arm(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN)
+    @yeti_l    = [yeti, yeti, build_yeti(BIGFOOT_FUR, BIGFOOT_SHADE, BIGFOOT_SKIN, true)]
+    @arm_l     = [arm, arm, build_yeti_arm(BIGFOOT_FUR, BIGFOOT_SHADE, BIGFOOT_SKIN)]
+    snowball = build_snowball
+    @snowball_l = [snowball, snowball, build_pinecone]
+    @eagle_l   = [[build_eagle(0), build_eagle(1), build_eagle(2)], [build_seagull(0), build_seagull(1), build_seagull(2)],
+                  [build_owl(0), build_owl(1), build_owl(2)]]
     @raven     = [build_raven(0), build_raven(1)]
     @bullet    = build_bullet
     @bomb      = build_charge
@@ -112,8 +169,17 @@ class Art
     @goat_icon = build_goat_icon
     SDL::Log.write("art: sprites #{SDL::Screen.ticks - t} ms")
     t = SDL::Screen.ticks
-    @hud       = build_hud
-    @logo      = build_logo
+    @hud_l = []
+    labels = ["GOATS", "PENGUINS", "MARMOTS"]
+    lv = 0
+    while lv < LEVEL_COUNT
+      set_level(lv)
+      @hud_l.push(build_hud(labels[lv]))
+      lv += 1
+    end
+    set_level(0)
+    @logo_l    = [build_logo("SAVE THE MOUNTAIN GOATS"), build_logo("SAVE THE ARCTIC PENGUINS"),
+                  build_logo("SAVE THE CASCADE MARMOTS")]
     SDL::Log.write("art: hud+logo #{SDL::Screen.ticks - t} ms")
 
     @font_logo.close
@@ -305,6 +371,16 @@ class Art
     while x < CHUNK_W
       wx = x0 + x + 0.5
       g = ground_y(wx)
+      if arctic?
+        paint_ice_column(c, x, wx, g, top, h)
+        x += 1
+        next
+      end
+      if cascadia?
+        paint_forest_column(c, x, wx, g, top, h)
+        x += 1
+        next
+      end
       slope = (ground_y(wx + 3.0) - ground_y(wx - 3.0)).abs / 6.0
       # 0 on the mountain, 1 down in the valley meadow, blended between.
       meadow = c.clampf((g - 540.0) / 30.0, 0.0, 1.0)
@@ -402,8 +478,11 @@ class Art
       ok = (x - BASE_PAD_X).abs > 170.0 && (x - BASE_DOOR_X).abs > 200.0 && (x - FENCE_X).abs > 70.0
       ok = false if ledge_at(x) >= 0 || ledge_at(x - 40.0) >= 0 || ledge_at(x + 40.0) >= 0
       ok = false if slope > 0.55 || g < 300.0
-      list.push([x, g < 545.0 ? 1 : 0, 0.7 + rng.rand * 0.5]) if ok
-      x += 90.0 + rng.rand * 260.0
+      kind = arctic? ? (rng.rand < 0.7 ? 0 : 1) : (g < 545.0 ? 1 : 0)
+      kind = rng.rand < 0.6 ? 0 : 1 if cascadia?
+      list.push([x, kind, cascadia? ? 0.8 + rng.rand * 0.6 : 0.7 + rng.rand * 0.5]) if ok
+      # Cascadia's forest stands much thicker.
+      x += cascadia? ? 34.0 + rng.rand * 80.0 : 90.0 + rng.rand * 260.0
     end
     list
   end
@@ -719,17 +798,16 @@ class Art
   YETI_FUR  = [0.90, 0.93, 0.99]
   YETI_SKIN = [0.42, 0.52, 0.72]
 
-  # A yeti facing right, its throwing arm drawn separately.
-  def build_yeti
+  # A yeti facing right, its throwing arm drawn separately. With other
+  # colors and bigfoot set: Bigfoot, with a peaked crown and no fangs.
+  def build_yeti(fur, sh, skin, bigfoot)
     c = Canvas.new(YETI_W, YETI_H)
-    fur = YETI_FUR
-    sh = [0.70, 0.76, 0.88]
     c.shadow_ellipse(22.0, 49.0, 18.0, 3.0, 3.0, 0.2, 0.5)
     # Legs and big feet.
     c.capsule(16.0, 38.0, 15.0, 47.0, 5.0, sh[0], sh[1], sh[2], 1.0)
     c.capsule(28.0, 38.0, 29.0, 47.0, 5.0, fur[0], fur[1], fur[2], 1.0)
-    c.ellipse(15.0, 49.0, 6.0, 2.6, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
-    c.ellipse(30.0, 49.0, 6.0, 2.6, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
+    c.ellipse(15.0, 49.0, 6.0, 2.6, skin[0], skin[1], skin[2], 1.0)
+    c.ellipse(30.0, 49.0, 6.0, 2.6, skin[0], skin[1], skin[2], 1.0)
     # Back arm.
     c.capsule(12.0, 22.0, 7.0, 37.0, 4.0, sh[0], sh[1], sh[2], 1.0)
     # Shaggy body.
@@ -743,24 +821,27 @@ class Art
       i += 1
     end
     # Head and face.
+    if bigfoot
+      c.poly([[15.0, 10.0], [21.0, -0.5], [27.0, 4.0], [30.0, 10.0]], 2.0, fur[0], fur[1], fur[2], 1.0)
+    end
     c.sphere(23.0, 13.0, 10.0, 0.9, fur[0], fur[1], fur[2], 1.0, 0.15)
-    c.ellipse(26.0, 15.0, 6.2, 5.2, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
+    c.ellipse(26.0, 15.0, 6.2, 5.2, skin[0], skin[1], skin[2], 1.0)
     c.capsule(21.5, 10.5, 27.5, 9.5, 1.3, sh[0], sh[1], sh[2], 1.0)
     c.disc(24.0, 13.5, 1.4, 1.0, 1.0, 1.0, 1.0)
     c.disc(29.0, 13.0, 1.4, 1.0, 1.0, 1.0, 1.0)
     c.disc(24.4, 13.8, 0.8, 0.05, 0.05, 0.1, 1.0)
     c.disc(29.4, 13.3, 0.8, 0.05, 0.05, 0.1, 1.0)
     c.capsule(23.5, 18.0, 29.5, 17.5, 1.0, 0.12, 0.10, 0.18, 1.0)
-    c.poly([[24.5, 17.5], [25.8, 17.5], [25.1, 19.6]], 0.2, 1.0, 1.0, 1.0, 1.0)
-    c.poly([[27.5, 17.3], [28.8, 17.3], [28.1, 19.4]], 0.2, 1.0, 1.0, 1.0, 1.0)
+    unless bigfoot
+      c.poly([[24.5, 17.5], [25.8, 17.5], [25.1, 19.6]], 0.2, 1.0, 1.0, 1.0, 1.0)
+      c.poly([[27.5, 17.3], [28.8, 17.3], [28.1, 19.4]], 0.2, 1.0, 1.0, 1.0, 1.0)
+    end
     c.to_texture(@renderer, true)
   end
 
   # Throwing arm, pivoting at its left end (the shoulder).
-  def build_yeti_arm
+  def build_yeti_arm(fur, sh, skin)
     c = Canvas.new(ARM_W, ARM_H)
-    fur = YETI_FUR
-    sh = [0.70, 0.76, 0.88]
     # A shaggy arm, thick at the shoulder...
     c.capsule(4.0, 5.0, 18.0, 5.0, 3.4, sh[0], sh[1], sh[2], 1.0)
     c.capsule(4.0, 4.6, 17.0, 4.6, 2.9, fur[0], fur[1], fur[2], 1.0)
@@ -773,11 +854,11 @@ class Art
       i += 1
     end
     # ...and a big bare mitt of a hand with stubby fingers.
-    c.ellipse(21.0, 5.0, 3.6, 3.2, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
-    c.capsule(22.5, 2.6, 25.2, 2.4, 1.1, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
-    c.capsule(23.0, 4.6, 26.0, 4.6, 1.1, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
-    c.capsule(22.5, 6.6, 25.2, 7.0, 1.1, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
-    c.capsule(19.5, 7.4, 21.6, 8.6, 1.0, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
+    c.ellipse(21.0, 5.0, 3.6, 3.2, skin[0], skin[1], skin[2], 1.0)
+    c.capsule(22.5, 2.6, 25.2, 2.4, 1.1, skin[0], skin[1], skin[2], 1.0)
+    c.capsule(23.0, 4.6, 26.0, 4.6, 1.1, skin[0], skin[1], skin[2], 1.0)
+    c.capsule(22.5, 6.6, 25.2, 7.0, 1.1, skin[0], skin[1], skin[2], 1.0)
+    c.capsule(19.5, 7.4, 21.6, 8.6, 1.0, skin[0], skin[1], skin[2], 1.0)
     c.to_texture(@renderer, true)
   end
 
@@ -885,6 +966,1131 @@ class Art
     c.to_texture(@renderer, true)
   end
 
+  # ---- The arctic ----
+
+  # Distant ice. Far: a smooth ice cap with a few broad flat-topped
+  # (tabular) shelves. Near: a ragged line of pressure ridges. Like the
+  # mountain ranges, every period divides the width so the texture tiles.
+  def build_ice_range(h, seed, near)
+    c = Canvas.new(WINDOW_W, h)
+    rng = Random.new(seed)
+    amps = []
+    phases = []
+    n = near ? 6 : 3
+    k = 1
+    while k <= n
+      amps.push(h * (near ? 0.26 : 0.22) / (k * 1.1) * (0.5 + rng.rand * 0.5))
+      phases.push(rng.rand * TWO_PI)
+      k += 1
+    end
+    x = 0
+    while x < WINDOW_W
+      ridge = h * (near ? 0.56 : 0.58)
+      k = 1
+      while k <= n
+        s = Math.sin(TWO_PI * (k + (near ? 2 : 0)) * x / WINDOW_W + phases[k - 1])
+        s = 1.0 - s.abs * 2.0 if near && k > 1
+        ridge += amps[k - 1] * s
+        k += 1
+      end
+      unless near
+        # Flatten into broad shelves with short sheer faces between them.
+        q = (ridge / 34.0).floor * 34.0
+        ridge = q + (ridge - q) * 0.18
+      end
+      ridge = h * 0.05 if ridge < h * 0.05
+      ridge = h - 4.0 if ridge > h - 4.0
+      y = ridge.floor
+      while y < h
+        t = (y - ridge) / (h - ridge)
+        t = 0.0 if t < 0.0
+        sh = (c.fbm(x * 0.02, y * 0.02, seed + 5, 2) - 0.5) * 0.06
+        if near
+          r = mix(0.97, 0.70, t) + sh
+          g = mix(0.98, 0.80, t) + sh
+          b = mix(1.0, 0.93, t)
+        else
+          r = mix(0.93, 0.76, t) + sh
+          g = mix(0.96, 0.85, t) + sh
+          b = mix(1.0, 0.96, t)
+        end
+        if y - ridge < 3.0
+          r = mix(r, 1.0, 0.7)
+          g = mix(g, 1.0, 0.7)
+          b = 1.0
+        end
+        cov = y == ridge.floor ? 1.0 - (ridge - ridge.floor) : 1.0
+        c.px_blend(x, y, c.clampf(r, 0.0, 1.0), c.clampf(g, 0.0, 1.0), c.clampf(b, 0.0, 1.0), cov)
+        y += 1
+      end
+      x += 1
+    end
+    c.to_texture(@renderer, true)
+  end
+
+  # Northern lights: green curtains with violet tops and fine vertical rays,
+  # tiling across the width. Faded in at night over the ice.
+  def build_aurora
+    h = 300
+    c = Canvas.new(WINDOW_W, h)
+    x = 0
+    while x < WINDOW_W
+      u = TWO_PI * x / WINDOW_W
+      base = 150.0 + 40.0 * Math.sin(u * 2.0 + 1.0) + 18.0 * Math.sin(u * 5.0 + 0.3) + 8.0 * Math.sin(u * 11.0)
+      glow = 0.5 + 0.5 * Math.sin(u * 3.0 + 0.8 * Math.sin(u * 2.0))
+      glow = glow * glow
+      rays = 0.55 + 0.25 * Math.sin(u * 37.0) + 0.2 * Math.sin(u * 61.0 + 1.3)
+      tall = 90.0 + 40.0 * Math.sin(u * 4.0 + 2.0)
+      y = 0
+      while y < h
+        d = base - y
+        if d > -8.0 && d < tall
+          # Sharp bright hem at the bottom, fading up into violet.
+          k = d < 0.0 ? (d + 8.0) / 8.0 : 1.0 - d / tall
+          k = k * k
+          up = d < 0.0 ? 0.0 : d / tall
+          r = mix(0.30, 0.62, up)
+          g = mix(1.0, 0.34, up)
+          b = mix(0.62, 0.92, up)
+          a = k * glow * rays * 0.75
+          c.px_blend(x, y, r, g, b, a) if a > 0.004
+        end
+        y += 1
+      end
+      x += 1
+    end
+    c.to_texture(@renderer, true)
+  end
+
+  # One column of a CHUNK_W slice of the ice sheet: a snow crust over
+  # glacial ice in soft strata, a few fine fractures and glints near the
+  # surface, darkening to deep blue below; packed firn on the snowfield by
+  # the station.
+  def paint_ice_column(c, x, wx, g, top, h)
+    slope = (ground_y(wx + 3.0) - ground_y(wx - 3.0)).abs / 6.0
+    field = c.clampf((g - 540.0) / 30.0, 0.0, 1.0)
+    snow = slope < 0.06 ? 9.0 : (slope < 0.5 ? 6.0 - slope * 5.0 : 2.0)
+    snow = snow * (1.0 - field) + 15.0 * field
+    y = g.floor.to_i - top
+    while y < h
+      wy = top + y + 0.5
+      d = wy - g
+      if d >= -1.0
+        n = c.fbm(wx * 0.02, wy * 0.04, 13, 3)
+        if d < snow
+          t = d / (snow + 0.01)
+          r = mix(0.98, 0.82, t * t)
+          gg = mix(0.99, 0.89, t * t)
+          b = 1.0
+        else
+          s = Math.sin(wy * 0.08 + wx * 0.003 + n * 3.0)
+          band = c.smoothstep(0.6, 0.95, s) * 0.05 - c.smoothstep(-0.6, -0.95, s) * 0.04
+          f = c.clampf(d / 240.0, 0.0, 1.0)
+          shade = (n - 0.5) * 0.08
+          r = mix(0.76, 0.44, f) + band + shade
+          gg = mix(0.90, 0.62, f) + band + shade
+          b = mix(0.98, 0.82, f) + band * 0.5 + shade * 0.5
+          # Fine fractures, only in the top of the ice.
+          if d < 90.0
+            q = c.fbm(wx * 0.008 + wy * 0.012, wy * 0.004, 29, 2)
+            fade = 1.0 - d / 90.0
+            if (q - 0.5).abs < 0.005
+              r += 0.14 * fade
+              gg += 0.12 * fade
+              b += 0.06 * fade
+            end
+          end
+          # Glints of light caught in the ice.
+          if c.hash2(wx.to_i, wy.to_i, 5) > 0.9975
+            r += 0.25
+            gg += 0.22
+            b += 0.15
+          end
+          rim = d < 12.0 ? (1.0 - d / 12.0) * 0.10 : 0.0
+          r += rim
+          gg += rim
+          b += rim * 0.5
+          if field > 0.0
+            t = c.clampf((d - snow) / 60.0, 0.0, 1.0)
+            fr = 0.86 + shade - t * 0.18
+            fg = 0.90 + shade - t * 0.15
+            fb = 0.97 + shade * 0.5 - t * 0.10
+            r = mix(r, fr, field)
+            gg = mix(gg, fg, field)
+            b = mix(b, fb, field)
+          end
+        end
+        cov = d < 0.0 ? d + 1.0 : 1.0
+        c.px_blend(x, y, c.clampf(r, 0.0, 1.0), c.clampf(gg, 0.0, 1.0), c.clampf(b, 0.0, 1.0), cov)
+      end
+      y += 1
+    end
+  end
+
+  # A pinnacle of blue ice (a serac), faceted, with snow on its shoulders.
+  def build_serac
+    c = Canvas.new(44, 96)
+    c.shadow_ellipse(22.0, 94.0, 18.0, 3.0, 3.0, 0.25, 0.5)
+    body = [[6.0, 96.0], [4.0, 70.0], [10.0, 46.0], [16.0, 30.0], [21.0, 8.0], [27.0, 28.0], [31.0, 40.0],
+            [38.0, 62.0], [40.0, 96.0]]
+    c.plastic_poly(body, 1.0, 0.62, 0.82, 0.96, 1.0, 2.5)
+    # Lit facet on the left, shadowed facet on the right.
+    c.poly([[8.0, 94.0], [7.0, 70.0], [12.0, 48.0], [18.0, 32.0], [21.0, 12.0], [22.0, 94.0]], 0.5, 0.86, 0.95, 1.0, 0.55)
+    c.poly([[26.0, 94.0], [27.0, 34.0], [34.0, 58.0], [38.0, 94.0]], 0.5, 0.30, 0.52, 0.78, 0.45)
+    c.capsule(14.0, 60.0, 20.0, 30.0, 0.8, 1.0, 1.0, 1.0, 0.6)
+    c.capsule(29.0, 80.0, 33.0, 62.0, 0.6, 0.9, 0.97, 1.0, 0.4)
+    c.grain(0, 0, 44, 96, 0.25, 51, 0.15)
+    snow_lump(c, 12.0, 47.0, 5.0)
+    snow_lump(c, 33.0, 46.0, 4.0)
+    snow_lump(c, 21.0, 10.0, 3.0)
+    c.disc(10.0, 92.0, 6.0, 0.97, 0.98, 1.0, 1.0)
+    c.disc(33.0, 93.0, 7.0, 0.97, 0.98, 1.0, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # An inukshuk: a stone figure stacked on the ice, capped with snow.
+  def build_inukshuk
+    c = Canvas.new(44, 96)
+    st = [0.46, 0.47, 0.50]
+    dk = [0.32, 0.33, 0.36]
+    c.shadow_ellipse(22.0, 94.0, 16.0, 3.0, 3.0, 0.25, 0.5)
+    c.plastic_poly([[11.0, 95.0], [18.0, 95.0], [18.0, 74.0], [10.0, 74.0]], 1.5, dk[0], dk[1], dk[2], 1.0, 1.5)
+    c.plastic_poly([[26.0, 95.0], [33.0, 95.0], [34.0, 74.0], [26.0, 74.0]], 1.5, st[0], st[1], st[2], 1.0, 1.5)
+    c.plastic_poly([[8.0, 74.0], [36.0, 74.0], [35.0, 67.0], [9.0, 66.0]], 1.5, st[0] + 0.04, st[1] + 0.04, st[2] + 0.04, 1.0, 1.5)
+    c.plastic_poly([[13.0, 66.0], [31.0, 66.0], [30.0, 55.0], [14.0, 54.0]], 1.5, dk[0] + 0.05, dk[1] + 0.05, dk[2] + 0.05, 1.0, 1.5)
+    c.plastic_poly([[2.0, 54.0], [42.0, 55.0], [41.0, 49.0], [3.0, 48.0]], 1.5, st[0], st[1], st[2], 1.0, 1.5)
+    c.plastic_poly([[16.0, 48.0], [28.0, 48.0], [27.0, 38.0], [17.0, 38.0]], 2.0, st[0] + 0.06, st[1] + 0.06, st[2] + 0.06, 1.0, 1.5)
+    c.grain(0, 36, 44, 60, 0.3, 57, 0.35)
+    c.capsule(4.0, 47.5, 40.0, 48.0, 1.6, 0.97, 0.98, 1.0, 1.0)
+    c.capsule(17.5, 37.5, 26.5, 37.5, 1.8, 0.97, 0.98, 1.0, 1.0)
+    c.capsule(10.0, 65.5, 34.0, 65.5, 1.2, 0.97, 0.98, 1.0, 0.9)
+    c.disc(14.0, 93.0, 6.0, 0.97, 0.98, 1.0, 1.0)
+    c.disc(31.0, 94.0, 6.0, 0.97, 0.98, 1.0, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # The research station: an insulated orange module with a snow-loaded
+  # roof and icicles at the eave, the big door the penguins waddle into,
+  # and a radome on a lattice tower with its beacon.
+  def build_station
+    c = Canvas.new(BASE_TEX_W, BASE_TEX_H)
+    h = BASE_TEX_H.to_f
+    org = [0.93, 0.44, 0.12]
+    c.shadow_poly([[14.0, 80.0], [214.0, 80.0], [214.0, h], [14.0, h]], 6.0, 0.2, 0.6)
+    c.box(12.0, 76.0, 196.0, h - 76.0, 3.0, org[0], org[1], org[2], 1.0)
+    x = 36.0
+    while x < 206.0
+      c.capsule(x, 80.0, x, h, 0.7, 0.62, 0.26, 0.06, 0.55)
+      x += 24.0
+    end
+    c.grain(12, 76, 196, 94, 0.12, 33, 0.18)
+    c.box(12.0, 130.0, 196.0, 5.0, 1.0, 0.97, 0.96, 0.92, 1.0)
+    # Roof slab, with snow piled along it and icicles under the eave.
+    c.box(6.0, 66.0, 208.0, 12.0, 2.0, 0.36, 0.38, 0.42, 1.0)
+    rng = Random.new(83)
+    x = 12.0
+    while x < 210.0
+      snow_lump(c, x, 64.0 - rng.rand * 3.0, 7.0 + rng.rand * 5.0)
+      x += 11.0
+    end
+    x = 14.0
+    while x < 206.0
+      len = 4.0 + rng.rand * 8.0
+      c.poly([[x - 1.6, 77.0], [x + 1.6, 77.0], [x, 77.0 + len]], 0.3, 0.82, 0.94, 1.0, 0.9)
+      x += 9.0 + rng.rand * 8.0
+    end
+    # The sign.
+    c.box(44.0, 86.0, 132.0, 22.0, 3.0, 0.97, 0.97, 0.95, 1.0)
+    c.text(@font_sign, "PENGUIN RESCUE", 110, 86, 0.10, 0.28, 0.55, 1.0, :center)
+    # Window with warm light.
+    c.box(22.0, 112.0, 30.0, 18.0, 2.0, 0.85, 0.87, 0.90, 1.0)
+    c.box(25.0, 115.0, 24.0, 12.0, 1.0, 0.98, 0.82, 0.45, 1.0)
+    # Big door (penguins go in here) in a steel frame.
+    dx = BASE_DOOR_OFF
+    c.box(dx - 32.0, 112.0, 64.0, h - 112.0, 2.0, 0.08, 0.08, 0.10, 1.0)
+    c.vgradient((dx - 32.0).to_i, 112, 64, 20, 0.0, 0.0, 0.0, 0.08, 0.08, 0.10, 0.0)
+    c.capsule(dx - 34.0, 111.0, dx + 34.0, 111.0, 2.0, 0.80, 0.82, 0.86, 1.0)
+    c.capsule(dx - 34.0, 111.0, dx - 34.0, h, 2.0, 0.80, 0.82, 0.86, 1.0)
+    c.capsule(dx + 34.0, 111.0, dx + 34.0, h, 2.0, 0.80, 0.82, 0.86, 1.0)
+    # Radome on a lattice tower.
+    c.shadow_poly([[226.0, 52.0], [258.0, 52.0], [258.0, h], [226.0, h]], 6.0, 0.2, 0.5)
+    c.capsule(230.0, 46.0, 228.0, h, 1.8, 0.55, 0.57, 0.62, 1.0)
+    c.capsule(254.0, 46.0, 256.0, h, 1.8, 0.55, 0.57, 0.62, 1.0)
+    y = 60.0
+    while y < h - 10.0
+      c.capsule(229.0, y, 255.0, y + 22.0, 1.0, 0.55, 0.57, 0.62, 1.0)
+      c.capsule(255.0, y, 229.0, y + 22.0, 1.0, 0.55, 0.57, 0.62, 1.0)
+      y += 22.0
+    end
+    c.box(222.0, 44.0, 40.0, 6.0, 1.5, 0.45, 0.47, 0.52, 1.0)
+    c.disc(242.0, 28.0, 18.0, 0.80, 0.85, 0.93, 1.0)
+    c.disc(240.0, 26.0, 16.0, 0.95, 0.97, 1.0, 1.0)
+    c.glow_blend(235.0, 20.0, 9.0, 1.6, 1.0, 1.0, 1.0, 0.8)
+    c.ring(242.0, 28.0, 11.0, 0.7, 0.70, 0.76, 0.86, 0.6)
+    c.capsule(228.0, 22.0, 256.0, 22.0, 0.6, 0.70, 0.76, 0.86, 0.6)
+    c.capsule(225.0, 32.0, 259.0, 32.0, 0.6, 0.70, 0.76, 0.86, 0.6)
+    c.capsule(242.0, 10.0, 242.0, 46.0, 0.6, 0.70, 0.76, 0.86, 0.5)
+    snow_lump(c, 236.0, 12.0, 6.0)
+    c.disc(246.0, 8.0, 3.6, 1.0, 0.25, 0.15, 1.0)
+    c.glow_blend(246.0, 8.0, 11.0, 2.0, 1.0, 0.3, 0.2, 0.6)
+    # Windsock.
+    c.capsule(274.0, 40.0, 274.0, h, 1.4, 0.75, 0.78, 0.82, 1.0)
+    c.poly([[275.0, 40.0], [279.0, 42.0], [279.0, 47.0], [275.0, 49.0]], 0.5, 1.0, 0.45, 0.10, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # At the edge of the pack ice: a post with a name board and a warning.
+  def build_ice_sign
+    c = Canvas.new(SIGN_W, SIGN_H)
+    c.shadow_poly([[58.0, 20.0], [64.0, 20.0], [64.0, 70.0], [58.0, 70.0]], 3.0, 0.2, 0.5)
+    c.capsule(60.0, 6.0, 60.0, 70.0, 2.6, 0.40, 0.28, 0.18, 1.0)
+    c.box(10.0, 6.0, 100.0, 17.0, 2.0, 0.16, 0.34, 0.60, 1.0)
+    c.text(@font_small, "PACK ICE", 60, 8, 0.96, 0.98, 1.0, 1.0, :center)
+    c.box(16.0, 28.0, 88.0, 16.0, 2.0, 0.98, 0.80, 0.18, 1.0)
+    c.text(@font_small, "YETIS", 60, 30, 0.10, 0.08, 0.06, 1.0, :center)
+    c.capsule(40.0, 4.0, 82.0, 4.0, 2.2, 0.95, 0.97, 1.0, 1.0)
+    c.capsule(20.0, 44.5, 46.0, 44.5, 1.4, 0.95, 0.97, 1.0, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # Snow-block courses on an igloo dome centered at (cx, cy) with radii
+  # rx, ry: curved horizontal joints and staggered vertical ones.
+  def igloo_blocks(c, cx, cy, rx, ry, top)
+    row = 0
+    y = cy - 11.0
+    while y > top
+      q = (cy - y) / ry
+      half = q < 1.0 ? rx * Math.sqrt(1.0 - q * q) : 0.0
+      c.capsule(cx - half + 3.0, y, cx + half - 3.0, y, 0.7, 0.62, 0.72, 0.88, 0.9) if half > 6.0
+      x = cx - half + (row % 2 == 0 ? 10.0 : 18.0)
+      while x < cx + half - 6.0
+        c.capsule(x, y + 1.0, x, y + 10.0, 0.6, 0.62, 0.72, 0.88, 0.85)
+        x += 16.0
+      end
+      y -= 11.0
+      row += 1
+    end
+  end
+
+  # An igloo with its entrance sealed by ice blocks; penguins peer out of
+  # the gap above.
+  def build_igloo
+    w = DRIFT_W
+    h = DRIFT_H
+    c = Canvas.new(w.to_i, h.to_i)
+    cx = w / 2.0
+    c.shadow_ellipse(cx, h - 3.0, w / 2.0, 6.0, 4.0, 0.2, 0.5)
+    c.ellipse(cx, h + 2.0, 60.0, 60.0, 0.74, 0.82, 0.95, 1.0)
+    c.ellipse(cx - 4.0, h + 2.0, 55.0, 57.0, 0.93, 0.96, 1.0, 1.0)
+    c.glow_blend(cx - 22.0, 22.0, 26.0, 1.5, 1.0, 1.0, 1.0, 0.6)
+    igloo_blocks(c, cx, h + 2.0, 58.0, 60.0, 6.0)
+    # Entrance arch.
+    c.ellipse(cx, h + 1.0, 21.0, 30.0, 0.80, 0.87, 0.97, 1.0)
+    c.ellipse(cx, h + 2.0, 14.0, 24.0, 0.06, 0.08, 0.18, 1.0)
+    # Penguins peeking over the blocks: eye rings, pupils and beaks.
+    [cx - 6.0, cx + 5.0].each do |px|
+      c.disc(px, 50.0, 1.7, 1.0, 1.0, 1.0, 1.0)
+      c.disc(px + 0.4, 50.2, 0.8, 0.02, 0.02, 0.05, 1.0)
+      c.capsule(px + 1.2, 52.5, px + 3.0, 53.0, 0.7, 0.98, 0.58, 0.15, 1.0)
+    end
+    # Blocks of clear blue ice stacked across the doorway.
+    [[cx - 14.0, 58.0, 14.0, 12.0], [cx, 58.0, 14.0, 12.0], [cx - 9.0, 54.0, 18.0, 5.0]].each do |b|
+      x0 = b[0]
+      y0 = b[1]
+      c.plastic_poly([[x0, y0], [x0 + b[2], y0], [x0 + b[2], y0 + b[3]], [x0, y0 + b[3]]], 1.2, 0.62, 0.84, 0.97, 1.0, 2.0)
+      c.capsule(x0 + 2.0, y0 + 2.0, x0 + b[2] - 4.0, y0 + 2.0, 0.6, 1.0, 1.0, 1.0, 0.6)
+    end
+    # Banked snow at the foot.
+    snow_lump(c, 18.0, h - 6.0, 12.0)
+    snow_lump(c, w - 18.0, h - 6.0, 12.0)
+    snow_lump(c, 36.0, h - 3.0, 8.0)
+    snow_lump(c, w - 38.0, h - 3.0, 8.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # Fills the canvas below a polyline (x ascending) down to y = base,
+  # anti-aliased along the top; for jagged outlines poly can't fill.
+  def fill_below(c, pts, base, r, g, b)
+    x = pts[0][0].floor.to_i
+    x = 0 if x < 0
+    last = pts[pts.length - 1][0]
+    j = 0
+    while x < last && x < c.w
+      px = x + 0.5
+      j += 1 while j < pts.length - 2 && pts[j + 1][0] < px
+      p0 = pts[j]
+      p1 = pts[j + 1]
+      t = p1[0] - p0[0] > 0.0 ? (px - p0[0]) / (p1[0] - p0[0]) : 0.0
+      t = 0.0 if t < 0.0
+      t = 1.0 if t > 1.0
+      top = p0[1] + (p1[1] - p0[1]) * t
+      y = top.floor.to_i
+      y = 0 if y < 0
+      while y < base && y < c.h
+        cov = y == top.floor.to_i ? 1.0 - (top - top.floor) : 1.0
+        c.px_blend(x, y, r, g, b, cov)
+        y += 1
+      end
+      x += 1
+    end
+  end
+
+  # The igloo once it's broken open: the dome snapped off in a jagged line,
+  # its shadowed inside showing above the front wall, the doorway open,
+  # loose blocks scattered about.
+  def build_igloo_ruin
+    w = DRIFT_W
+    h = DRIFT_H
+    c = Canvas.new(w.to_i, h.to_i)
+    cx = w / 2.0
+    base = h + 2.0
+    rng = Random.new(67)
+    c.shadow_ellipse(cx, h - 3.0, w / 2.0, 6.0, 4.0, 0.2, 0.5)
+    # Back wall (the inside, in shadow), broken higher than the front.
+    back = [[cx - 58.0, base]]
+    front = [[cx - 58.0, base]]
+    i = 0
+    while i <= 12
+      x = cx - 56.0 + i * 112.0 / 12.0
+      q = (x - cx) / 58.0
+      dome = base - 60.0 * Math.sqrt(1.0 - q * q)
+      bt = base - 26.0 - rng.rand * 14.0
+      ft = base - 12.0 - rng.rand * 12.0
+      back.push([x, bt < dome ? dome : bt])
+      front.push([x, ft < dome ? dome : ft])
+      i += 1
+    end
+    back.push([cx + 58.0, base])
+    front.push([cx + 58.0, base])
+    fill_below(c, back, base, 0.56, 0.66, 0.84)
+    fill_below(c, front, base, 0.93, 0.96, 1.0)
+    # Block joints on the front wall.
+    y = base - 11.0
+    row = 0
+    while y > base - 22.0
+      c.capsule(cx - 52.0, y, cx + 52.0, y, 0.7, 0.62, 0.72, 0.88, 0.9)
+      x = cx - 52.0 + (row % 2 == 0 ? 6.0 : 14.0)
+      while x < cx + 50.0
+        c.capsule(x, y + 1.0, x, y + 10.0, 0.6, 0.62, 0.72, 0.88, 0.85)
+        x += 16.0
+      end
+      y -= 11.0
+      row += 1
+    end
+    # The doorway, open now.
+    c.ellipse(cx, base - 1.0, 18.0, 22.0, 0.80, 0.87, 0.97, 1.0)
+    c.ellipse(cx, base, 12.0, 17.0, 0.10, 0.13, 0.26, 1.0)
+    # Loose blocks.
+    i = 0
+    while i < 7
+      bx = 10.0 + rng.rand * (w - 20.0)
+      bx += 30.0 if (bx - cx).abs < 20.0
+      by = h - 5.0 - rng.rand * 5.0
+      s2 = 3.5 + rng.rand * 2.5
+      tilt = rng.rand * 2.0 - 1.0
+      c.plastic_poly([[bx - s2, by - s2 * 0.6 + tilt], [bx + s2, by - s2 * 0.6 - tilt], [bx + s2, by + s2 * 0.6 - tilt],
+                      [bx - s2, by + s2 * 0.6 + tilt]], 0.8, 0.88, 0.93, 1.0, 1.0, 1.2)
+      i += 1
+    end
+    snow_lump(c, 12.0, h - 5.0, 9.0)
+    snow_lump(c, w - 12.0, h - 5.0, 9.0)
+    c.to_texture(@renderer, true)
+  end
+
+  PENGUIN_BLACK = [0.10, 0.11, 0.15]
+  PENGUIN_WHITE = [0.97, 0.97, 0.98]
+
+  # A penguin facing right, in one of three kinds: 0 king (orange ear
+  # patches and a golden chest), 1 adelie (white eye rings), 2 rockhopper
+  # (yellow crest, red eyes). Frames as the goats': 0 standing, 1 and 2
+  # waddling, 3 flapping its flippers at the chopper, 4 calling.
+  def paint_penguin(c, frame, kind)
+    blk = PENGUIN_BLACK
+    wht = PENGUIN_WHITE
+    feet = [0.98, 0.58, 0.18]
+    bx = frame == 1 ? 0.7 : (frame == 2 ? -0.7 : 0.0)
+    f1 = frame == 1 ? -1.3 : 0.0
+    f2 = frame == 2 ? -1.3 : 0.0
+    c.ellipse(10.0 + bx, 20.4 + f1, 2.7, 1.1, feet[0], feet[1], feet[2], 1.0)
+    c.ellipse(14.4 + bx, 20.4 + f2, 2.7, 1.1, feet[0] * 0.85, feet[1] * 0.85, feet[2] * 0.85, 1.0)
+    if frame == 3
+      c.capsule(14.5 + bx, 9.0, 20.5 + bx, 5.0, 1.3, blk[0], blk[1], blk[2], 1.0)
+    end
+    c.ellipse(11.8 + bx, 12.6, 6.0, 8.0, blk[0], blk[1], blk[2], 1.0)
+    c.ellipse(13.5 + bx, 13.6, 4.2, 6.6, wht[0], wht[1], wht[2], 1.0)
+    c.capsule(9.0 + bx, 6.5, 9.0 + bx, 15.0, 0.6, 0.30, 0.32, 0.40, 0.5)
+    if kind == 0
+      c.ellipse(14.6 + bx, 8.4, 2.4, 1.6, 1.0, 0.80, 0.30, 0.85)
+    end
+    if frame == 3
+      c.capsule(10.5 + bx, 9.0, 4.5 + bx, 4.0, 1.4, blk[0], blk[1], blk[2], 1.0)
+    else
+      c.capsule(10.4 + bx, 9.4, 8.6 + bx, 16.4, 1.5, blk[0], blk[1], blk[2], 1.0)
+    end
+    hx = 13.2 + bx + (frame == 4 ? 1.2 : 0.0)
+    hy = frame == 4 ? 5.6 : 4.6
+    c.disc(hx, hy, 3.7, blk[0], blk[1], blk[2], 1.0)
+    if kind == 0
+      c.ellipse(hx + 0.3, hy + 1.6, 1.3, 1.9, 1.0, 0.62, 0.15, 1.0)
+    elsif kind == 2
+      c.capsule(hx + 1.0, hy - 1.6, hx - 3.0, hy - 3.6, 0.6, 1.0, 0.86, 0.2, 1.0)
+      c.capsule(hx + 1.6, hy - 1.0, hx - 2.4, hy - 2.2, 0.55, 1.0, 0.86, 0.2, 1.0)
+    end
+    if kind == 1
+      c.disc(hx + 1.5, hy - 0.7, 1.15, wht[0], wht[1], wht[2], 1.0)
+      c.disc(hx + 1.7, hy - 0.7, 0.55, 0.02, 0.02, 0.05, 1.0)
+    elsif kind == 2
+      c.disc(hx + 1.5, hy - 0.7, 0.85, 0.85, 0.15, 0.12, 1.0)
+    else
+      c.disc(hx + 1.5, hy - 0.7, 0.8, wht[0], wht[1], wht[2], 1.0)
+      c.disc(hx + 1.7, hy - 0.7, 0.45, 0.02, 0.02, 0.05, 1.0)
+    end
+    beak = kind == 1 ? [0.22, 0.20, 0.22] : (kind == 2 ? [0.86, 0.32, 0.14] : [0.95, 0.55, 0.20])
+    if frame == 4
+      c.capsule(hx + 3.0, hy - 0.2, hx + 6.4, hy - 1.6, 0.8, beak[0], beak[1], beak[2], 1.0)
+      c.capsule(hx + 3.0, hy + 1.0, hx + 6.0, hy + 2.2, 0.7, beak[0], beak[1], beak[2], 1.0)
+    else
+      c.capsule(hx + 3.0, hy + 0.4, hx + 6.2, hy + 1.2, 0.85, beak[0], beak[1], beak[2], 1.0)
+    end
+  end
+
+  # [kind][frame], like the goats' coats.
+  def build_penguin_frames
+    kinds = []
+    k = 0
+    while k < 3
+      list = []
+      f = 0
+      while f < GOAT_FRAMES
+        c = Canvas.new(GOAT_W, GOAT_H)
+        paint_penguin(c, f, k)
+        list.push(c.to_texture(@renderer, true))
+        f += 1
+      end
+      kinds.push(list)
+      k += 1
+    end
+    kinds
+  end
+
+  # Herring gull, facing right: 0 wings up, 1 wings down, 2 diving with
+  # its wings swept back.
+  def build_seagull(frame)
+    c = Canvas.new(EAGLE_W, EAGLE_H)
+    wht = [0.97, 0.97, 0.98]
+    gry = [0.62, 0.66, 0.72]
+    blk = [0.12, 0.12, 0.14]
+    if frame == 0
+      c.plastic_poly([[30.0, 17.0], [44.0, 17.0], [38.0, 6.0], [28.0, 1.0], [17.0, 3.0]], 1.0, gry[0], gry[1], gry[2], 1.0, 1.5)
+      c.poly([[17.0, 3.0], [28.0, 1.0], [25.0, 5.5], [19.0, 6.0]], 0.4, blk[0], blk[1], blk[2], 1.0)
+      c.disc(21.0, 3.6, 0.8, 1.0, 1.0, 1.0, 0.9)
+    elsif frame == 1
+      c.plastic_poly([[30.0, 19.0], [44.0, 19.0], [38.0, 30.0], [27.0, 33.5], [18.0, 30.5]], 1.0, gry[0], gry[1], gry[2], 1.0, 1.5)
+      c.poly([[18.0, 30.5], [27.0, 33.5], [25.0, 29.0], [20.0, 28.0]], 0.4, blk[0], blk[1], blk[2], 1.0)
+    end
+    # Tail.
+    c.poly([[26.0, 16.5], [12.0, 15.0], [11.0, 20.0], [26.0, 21.0]], 0.8, wht[0], wht[1], wht[2], 1.0)
+    c.capsule(13.0, 19.4, 24.0, 20.0, 0.8, gry[0], gry[1], gry[2], 0.6)
+    c.ellipse(38.0, 18.5, 13.5, 5.2, wht[0], wht[1], wht[2], 1.0)
+    c.capsule(28.0, 21.5, 46.0, 21.0, 1.4, 0.80, 0.82, 0.86, 0.6)
+    if frame == 2
+      c.plastic_poly([[24.0, 15.5], [47.0, 15.0], [41.0, 20.0], [26.0, 20.5]], 1.0, gry[0], gry[1], gry[2], 1.0, 1.5)
+      c.poly([[19.0, 16.5], [27.0, 15.6], [27.0, 20.4], [21.0, 19.5]], 0.4, blk[0], blk[1], blk[2], 1.0)
+    end
+    c.sphere(51.0, 15.5, 5.0, 0.8, wht[0], wht[1], wht[2], 1.0, 0.2)
+    c.poly([[55.0, 14.4], [62.5, 15.8], [55.0, 17.6]], 0.4, 0.98, 0.84, 0.22, 1.0)
+    c.disc(59.6, 16.4, 0.9, 0.85, 0.15, 0.12, 1.0)
+    c.disc(52.6, 14.2, 0.9, 0.05, 0.05, 0.05, 1.0)
+    c.capsule(37.0, 23.0, 40.0, 24.6, 0.9, 0.92, 0.62, 0.55, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # ---- Cascadia (the third level) ----
+
+  # Distant Cascadia. Far: a lone snow-capped volcano with glaciers
+  # streaming down its flanks, over hazy blue foothills. Near: a forested
+  # ridge, its skyline serrated by the tips of firs. Both tile across the
+  # width like the other ranges.
+  def build_cascade_range(h, seed, near)
+    c = Canvas.new(WINDOW_W, h)
+    rng = Random.new(seed)
+    amps = []
+    phases = []
+    n = 4
+    k = 1
+    while k <= n
+      amps.push(h * (near ? 0.16 : 0.10) / k * (0.5 + rng.rand * 0.5))
+      phases.push(rng.rand * TWO_PI)
+      k += 1
+    end
+    # Fir tips along the near ridge: [x, height, half width].
+    firs = []
+    if near
+      x = 0.0
+      while x < WINDOW_W
+        firs.push([x, 10.0 + rng.rand * 18.0, 3.5 + rng.rand * 3.5])
+        x += 5.0 + rng.rand * 6.0
+      end
+    end
+    vx = WINDOW_W * 0.62
+    peak = h * 0.07
+    x = 0
+    while x < WINDOW_W
+      base = h * (near ? 0.52 : 0.64)
+      k = 1
+      while k <= n
+        base += amps[k - 1] * Math.sin(TWO_PI * k * x / WINDOW_W + phases[k - 1])
+        k += 1
+      end
+      ridge = base
+      if near
+        firs.each do |f|
+          dx = (x - f[0]).abs
+          dx = WINDOW_W - dx if dx > WINDOW_W / 2.0
+          if dx < f[2]
+            tip = base - f[1] + dx * f[1] / f[2]
+            ridge = tip if tip < ridge
+          end
+        end
+      else
+        # The volcano: broad, slightly concave flanks under a flat-ish summit.
+        d = (x - vx).abs
+        cone = peak + h * 0.92 * ((d / 340.0) ** 1.35)
+        cone = peak + 2.0 + (d / 30.0) if d < 26.0
+        ridge = cone if cone < ridge
+      end
+      ridge = 2.0 if ridge < 2.0
+      ridge = h - 4.0 if ridge > h - 4.0
+      y = ridge.floor
+      while y < h
+        t = (y - ridge) / (h - ridge)
+        t = 0.0 if t < 0.0
+        sh = (c.fbm(x * 0.03, y * 0.03, seed + 5, 2) - 0.5) * 0.07
+        if near
+          r = mix(0.22, 0.16, t) + sh
+          g = mix(0.34, 0.26, t) + sh
+          b = mix(0.36, 0.28, t) + sh * 0.5
+        else
+          r = mix(0.52, 0.42, t) + sh
+          g = mix(0.60, 0.52, t) + sh
+          b = mix(0.72, 0.62, t) + sh * 0.5
+          d = (x - vx).abs
+          if d < 300.0
+            # Glaciers: white down to a ragged line, tongues reaching lower.
+            line = peak + 50.0 + 60.0 * c.fbm(x * 0.035, 0.5, seed + 11, 3) + (c.fbm(x * 0.05, y * 0.05, seed + 9, 2) - 0.5) * 20.0
+            if y < line
+              lit = 1.0 - c.smoothstep(-60.0, 120.0, x - vx) * 0.12
+              r = 0.95 * lit
+              g = 0.97 * lit
+              b = 1.0 * (lit + 0.06)
+            end
+          end
+        end
+        cov = y == ridge.floor ? 1.0 - (ridge - ridge.floor) : 1.0
+        c.px_blend(x, y, c.clampf(r, 0.0, 1.0), c.clampf(g, 0.0, 1.0), c.clampf(b, 0.0, 1.0), cov)
+        y += 1
+      end
+      x += 1
+    end
+    c.to_texture(@renderer, true)
+  end
+
+  # One column of a CHUNK_W slice of Cascadia: moss and grass on top (with
+  # sword ferns poking up off the slopes), a deep bank of dark loam
+  # studded with pebbles, then weathered basalt in rough
+  # columns, darkening with depth.
+  def paint_forest_column(c, x, wx, g, top, h)
+    slope = (ground_y(wx + 3.0) - ground_y(wx - 3.0)).abs / 6.0
+    flat = slope < 0.06
+    field = c.clampf((g - 540.0) / 30.0, 0.0, 1.0)
+    fern = c.fbm(wx * 0.045, 3.0, 41, 2)
+    tuft = 0.0
+    if !flat && fern > 0.5
+      tuft = (fern - 0.5) * 34.0 * (0.55 + 0.45 * Math.sin(wx * 1.7).abs)
+    end
+    soil = 70.0 + (c.fbm(wx * 0.012, 1.0, 43, 3) - 0.5) * 50.0
+    y = g.floor.to_i - top - 12
+    y = 0 if y < 0
+    while y < h
+      wy = top + y + 0.5
+      d = wy - g
+      if d < -1.0
+        if -d < tuft
+          k = (-d) / (tuft + 0.01)
+          c.px_blend(x, y, 0.16 + k * 0.10, 0.34 + k * 0.14, 0.14, 1.0 - k * 0.3)
+        end
+        y += 1
+        next
+      end
+      n = c.fbm(wx * 0.05, wy * 0.05, 37, 3)
+      if d < 5.0
+        # Moss, brighter grass on the clearings and the river flat.
+        if flat || field > 0.0
+          r = 0.40 + n * 0.14
+          gg = 0.60 + n * 0.14
+          b = 0.24
+        else
+          r = 0.22 + n * 0.12
+          gg = 0.44 + n * 0.14
+          b = 0.18
+        end
+        r += 0.06 if d < 1.5
+        gg += 0.06 if d < 1.5
+      elsif d < soil
+        t = (d - 5.0) / (soil - 5.0)
+        r = 0.27 + n * 0.10 - t * 0.07
+        gg = 0.19 + n * 0.07 - t * 0.05
+        b = 0.13 + n * 0.05 - t * 0.04
+        # Dark humus just under the moss.
+        if d < 14.0
+          r -= 0.06
+          gg -= 0.05
+          b -= 0.03
+        end
+        # Pebbles.
+        pv = c.fbm(wx * 0.22, wy * 0.22, 59, 1)
+        if pv > 0.80
+          s2 = 0.36 + (pv - 0.8) * 1.2
+          r = s2
+          gg = s2 - 0.01
+          b = s2 + 0.01
+        end
+      else
+        # Basalt in rough columns: wavering joints, cross cracks, mossy near
+        # the top, dark with depth.
+        j = wx + (c.fbm(wx * 0.01, wy * 0.012, 47, 2) - 0.5) * 30.0
+        col = (j / 22.0).floor
+        cx2 = j - col * 22.0
+        edge = cx2 < 1.2 ? -0.07 : 0.0
+        tone = (c.hash2(col, 3, 61) - 0.5) * 0.05
+        cr = Math.sin(wy * 0.07 + col * 2.3)
+        crack = cr > 0.99 ? -0.05 : 0.0
+        f = 1.0 - c.clampf((d - soil) / 200.0, 0.0, 1.0) * 0.45
+        r = (0.22 + n * 0.08 + edge + crack + tone) * f
+        gg = (0.23 + n * 0.08 + edge + crack + tone) * f
+        b = (0.25 + n * 0.08 + edge + crack + tone) * f
+        if d < soil + 24.0 && n > 0.6
+          r = mix(r, 0.24, 0.5)
+          gg = mix(gg, 0.34, 0.5)
+          b = mix(b, 0.18, 0.5)
+        end
+      end
+      if field > 0.0 && d >= 5.0
+        t = c.clampf((d - 5.0) / 60.0, 0.0, 1.0)
+        r = mix(r, 0.36 + n * 0.10 - t * 0.10, field)
+        gg = mix(gg, 0.28 + n * 0.08 - t * 0.08, field)
+        b = mix(b, 0.19 + n * 0.05 - t * 0.06, field)
+      end
+      cov = d < 0.0 ? d + 1.0 : 1.0
+      c.px_blend(x, y, c.clampf(r, 0.0, 1.0), c.clampf(gg, 0.0, 1.0), c.clampf(b, 0.0, 1.0), cov)
+      y += 1
+    end
+  end
+
+  # A Douglas fir: tall and narrow, its tiers of boughs tipping down.
+  def build_fir
+    c = Canvas.new(44, 96)
+    c.shadow_ellipse(22.0, 94.0, 12.0, 2.5, 3.0, 0.25, 0.5)
+    c.box(19.5, 66.0, 5.0, 30.0, 1.5, 0.36, 0.24, 0.16, 1.0)
+    c.capsule(20.5, 70.0, 20.5, 94.0, 0.6, 0.24, 0.15, 0.10, 0.7)
+    dark = [0.09, 0.24, 0.17]
+    i = 0
+    while i < 8
+      ty = 2.0 + i * 9.0
+      half = 4.0 + i * 2.4
+      sh = i * 0.008
+      c.plastic_poly([[22.0, ty], [22.0 + half, ty + 14.0], [22.0 + half * 0.5, ty + 12.5], [22.0 - half * 0.5, ty + 12.5],
+                      [22.0 - half, ty + 14.0]], 0.8, dark[0] - sh, dark[1] - sh, dark[2] - sh, 1.0, 1.8)
+      c.capsule(22.0 - half * 0.85, ty + 12.0, 22.0 - half * 0.2, ty + 7.0, 0.8, 0.24, 0.44, 0.28, 0.45)
+      i += 1
+    end
+    c.grain(0, 0, 44, 86, 0.3, 61, 0.35)
+    c.to_texture(@renderer, true)
+  end
+
+  # A western red cedar: a fluted reddish trunk under drooping sprays of
+  # lighter, yellower green.
+  def build_cedar
+    c = Canvas.new(44, 96)
+    c.shadow_ellipse(22.0, 94.0, 14.0, 2.5, 3.0, 0.25, 0.5)
+    c.plastic_poly([[18.0, 40.0], [26.0, 40.0], [29.0, 96.0], [15.0, 96.0]], 1.0, 0.56, 0.30, 0.20, 1.0, 1.5)
+    [19.0, 22.0, 25.0].each { |fx| c.capsule(fx, 44.0, fx + (fx - 22.0) * 0.2, 95.0, 0.5, 0.40, 0.20, 0.13, 0.7) }
+    green = [0.22, 0.40, 0.18]
+    rng = Random.new(71)
+    i = 0
+    while i < 9
+      ty = 4.0 + i * 7.5
+      half = 5.0 + i * 2.2
+      c.ellipse(22.0, ty + 5.0, half, 5.5, green[0] - i * 0.01, green[1] - i * 0.012, green[2], 1.0)
+      # Sprays drooping off each side.
+      [-1.0, 1.0].each do |sd|
+        x1 = 22.0 + sd * half * 0.9
+        c.capsule(22.0 + sd * half * 0.4, ty + 4.0, x1, ty + 9.0 + rng.rand * 3.0, 1.6, green[0] + 0.03, green[1] + 0.05, green[2], 1.0)
+      end
+      c.capsule(22.0 - half * 0.7, ty + 3.0, 22.0 - half * 0.1, ty + 2.0, 0.8, 0.42, 0.58, 0.26, 0.5)
+      i += 1
+    end
+    c.grain(0, 0, 44, 80, 0.3, 67, 0.3)
+    c.to_texture(@renderer, true)
+  end
+
+  # The ranger station: a log cabin under a green roof with a stone
+  # chimney, the big door the marmots scurry into, and a fire lookout on a
+  # timber tower with its beacon.
+  def build_ranger_station
+    c = Canvas.new(BASE_TEX_W, BASE_TEX_H)
+    h = BASE_TEX_H.to_f
+    c.shadow_poly([[14.0, 80.0], [214.0, 80.0], [214.0, h], [14.0, h]], 6.0, 0.2, 0.6)
+    # Stacked logs with round ends at the corners.
+    y = 78.0
+    i = 0
+    while y < h
+      sh = i % 2 == 0 ? 0.0 : -0.04
+      c.capsule(12.0, y + 4.0, 208.0, y + 4.0, 4.4, 0.52 + sh, 0.34 + sh, 0.20 + sh, 1.0)
+      c.capsule(14.0, y + 2.0, 206.0, y + 2.0, 1.0, 0.66, 0.48, 0.30, 0.5)
+      c.disc(10.0, y + 4.0, 4.0, 0.72, 0.56, 0.36, 1.0)
+      c.ring(10.0, y + 4.0, 2.0, 0.5, 0.50, 0.34, 0.20, 0.8)
+      c.disc(210.0, y + 4.0, 4.0, 0.72, 0.56, 0.36, 1.0)
+      c.ring(210.0, y + 4.0, 2.0, 0.5, 0.50, 0.34, 0.20, 0.8)
+      y += 9.0
+      i += 1
+    end
+    c.grain(8, 76, 206, 94, 0.12, 73, 0.2)
+    # Stone chimney, then the green gable roof with moss along its edge.
+    c.box(170.0, 22.0, 18.0, 46.0, 2.0, 0.50, 0.50, 0.52, 1.0)
+    c.grain(170, 22, 18, 46, 0.3, 79, 0.5)
+    c.box(167.0, 20.0, 24.0, 6.0, 1.5, 0.42, 0.42, 0.44, 1.0)
+    c.plastic_poly([[0.0, 82.0], [220.0, 82.0], [110.0, 26.0]], 2.0, 0.20, 0.40, 0.26, 1.0, 3.0)
+    c.capsule(2.0, 81.0, 110.0, 25.0, 2.4, 0.26, 0.48, 0.24, 1.0)
+    c.capsule(110.0, 25.0, 218.0, 81.0, 2.4, 0.26, 0.48, 0.24, 1.0)
+    c.capsule(4.0, 83.0, 216.0, 83.0, 1.6, 0.14, 0.26, 0.18, 1.0)
+    c.disc(110.0, 52.0, 9.0, 0.72, 0.56, 0.36, 1.0)
+    c.ring(110.0, 52.0, 5.5, 0.8, 0.50, 0.34, 0.20, 0.9)
+    c.ring(110.0, 52.0, 2.5, 0.6, 0.50, 0.34, 0.20, 0.9)
+    # The sign, a window with warm light, and the big door.
+    c.box(44.0, 88.0, 132.0, 20.0, 3.0, 0.93, 0.88, 0.72, 1.0)
+    c.text(@font_sign, "MARMOT RESCUE", 110, 87, 0.30, 0.18, 0.08, 1.0, :center)
+    c.box(22.0, 114.0, 30.0, 20.0, 2.0, 0.36, 0.24, 0.14, 1.0)
+    c.box(25.0, 117.0, 24.0, 14.0, 1.0, 0.98, 0.82, 0.45, 1.0)
+    c.capsule(37.0, 117.0, 37.0, 131.0, 0.8, 0.36, 0.24, 0.14, 1.0)
+    dx = BASE_DOOR_OFF
+    c.box(dx - 32.0, 114.0, 64.0, h - 114.0, 2.0, 0.09, 0.06, 0.04, 1.0)
+    c.vgradient((dx - 32.0).to_i, 114, 64, 20, 0.0, 0.0, 0.0, 0.09, 0.06, 0.04, 0.0)
+    c.capsule(dx - 34.0, 112.0, dx + 34.0, 112.0, 2.4, 0.40, 0.26, 0.15, 1.0)
+    c.capsule(dx - 34.0, 112.0, dx - 34.0, h, 2.4, 0.40, 0.26, 0.15, 1.0)
+    c.capsule(dx + 34.0, 112.0, dx + 34.0, h, 2.4, 0.40, 0.26, 0.15, 1.0)
+    # Fire lookout on a timber tower.
+    c.shadow_poly([[226.0, 50.0], [258.0, 50.0], [258.0, h], [226.0, h]], 6.0, 0.2, 0.5)
+    c.capsule(228.0, 50.0, 224.0, h, 2.0, 0.40, 0.28, 0.18, 1.0)
+    c.capsule(256.0, 50.0, 260.0, h, 2.0, 0.40, 0.28, 0.18, 1.0)
+    y = 60.0
+    while y < h - 10.0
+      c.capsule(228.0, y, 256.0, y + 24.0, 1.1, 0.40, 0.28, 0.18, 1.0)
+      c.capsule(256.0, y, 228.0, y + 24.0, 1.1, 0.40, 0.28, 0.18, 1.0)
+      c.capsule(227.0, y, 257.0, y, 1.0, 0.40, 0.28, 0.18, 1.0)
+      y += 24.0
+    end
+    c.box(216.0, 26.0, 52.0, 26.0, 2.0, 0.55, 0.40, 0.26, 1.0)
+    c.box(220.0, 30.0, 44.0, 11.0, 1.5, 0.60, 0.80, 0.90, 1.0)
+    c.capsule(231.0, 30.0, 231.0, 41.0, 0.7, 0.55, 0.40, 0.26, 1.0)
+    c.capsule(253.0, 30.0, 253.0, 41.0, 0.7, 0.55, 0.40, 0.26, 1.0)
+    c.box(212.0, 50.0, 60.0, 4.0, 1.0, 0.40, 0.28, 0.18, 1.0)
+    c.plastic_poly([[208.0, 28.0], [276.0, 28.0], [242.0, 10.0]], 1.5, 0.20, 0.40, 0.26, 1.0, 2.0)
+    c.disc(242.0, 7.0, 3.6, 1.0, 0.45, 0.15, 1.0)
+    c.glow_blend(242.0, 7.0, 11.0, 2.0, 1.0, 0.5, 0.2, 0.6)
+    # Windsock.
+    c.capsule(274.0, 40.0, 274.0, h, 1.4, 0.75, 0.78, 0.82, 1.0)
+    c.poly([[275.0, 40.0], [279.0, 42.0], [279.0, 47.0], [275.0, 49.0]], 0.5, 1.0, 0.45, 0.10, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # At the forest edge: a post with a park board and a warning.
+  def build_forest_sign
+    c = Canvas.new(SIGN_W, SIGN_H)
+    c.shadow_poly([[58.0, 20.0], [64.0, 20.0], [64.0, 70.0], [58.0, 70.0]], 3.0, 0.2, 0.5)
+    c.capsule(60.0, 6.0, 60.0, 70.0, 2.6, 0.40, 0.28, 0.18, 1.0)
+    c.box(10.0, 6.0, 100.0, 17.0, 2.0, 0.40, 0.26, 0.14, 1.0)
+    c.text(@font_small, "OLD GROWTH", 60, 8, 0.96, 0.90, 0.72, 1.0, :center)
+    c.box(16.0, 28.0, 88.0, 16.0, 2.0, 0.98, 0.80, 0.18, 1.0)
+    c.text(@font_small, "BIGFOOT XING", 60, 30, 0.10, 0.08, 0.06, 1.0, :center)
+    c.capsule(36.0, 5.0, 70.0, 5.0, 1.8, 0.28, 0.48, 0.22, 1.0)
+    c.disc(48.0, 4.0, 2.6, 0.30, 0.52, 0.24, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
+  # Ferns at the foot of a stump.
+  def ferns(c, x, y, s)
+    i = -2
+    while i <= 2
+      a = -Math::PI / 2.0 + i * 0.42
+      ex = x + Math.cos(a) * 11.0 * s
+      ey = y + Math.sin(a) * 9.0 * s
+      c.capsule(x, y, ex, ey, 1.1 * s, 0.20, 0.44, 0.18, 1.0)
+      c.capsule((x + ex) / 2.0, (y + ey) / 2.0, ex, ey, 0.7 * s, 0.32, 0.58, 0.24, 1.0)
+      i += 1
+    end
+  end
+
+  # A hollow old-growth stump, its doorway blocked by a fallen log; marmot
+  # eyes glint in the dark above it.
+  def build_stump
+    w = DRIFT_W
+    h = DRIFT_H
+    c = Canvas.new(w.to_i, h.to_i)
+    cx = w / 2.0
+    c.shadow_ellipse(cx, h - 3.0, w / 2.0, 6.0, 4.0, 0.2, 0.5)
+    rng = Random.new(83)
+    # The trunk, tapering up from flared roots to a broken, jagged top.
+    pts = [[cx - 66.0, h], [cx - 56.0, h - 8.0], [cx - 48.0, h - 22.0], [cx - 44.0, 30.0]]
+    i = 1
+    while i <= 13
+      x = cx - 44.0 + i * 88.0 / 14.0
+      pts.push([x, 8.0 + rng.rand * 14.0])
+      i += 1
+    end
+    pts.push([cx + 44.0, 26.0])
+    pts.push([cx + 48.0, h - 22.0])
+    pts.push([cx + 56.0, h - 8.0])
+    pts.push([cx + 66.0, h])
+    fill_below(c, pts, h.to_i, 0.50, 0.29, 0.18)
+    # Bark furrows, splaying out toward the roots, lit on the left.
+    x = cx - 40.0
+    while x < cx + 42.0
+      c.capsule(x, 22.0 + rng.rand * 6.0, x + (x - cx) * 0.25, h - 2.0, 1.0, 0.34, 0.18, 0.11, 0.9)
+      x += 6.0 + rng.rand * 3.0
+    end
+    c.vgradient((cx - 46.0).to_i, 32, 26, (h - 32.0).to_i, 1.0, 1.0, 1.0, 1.0, 1.0, 1.0, 0.10)
+    c.vgradient((cx + 24.0).to_i, 32, 20, (h - 32.0).to_i, 0.0, 0.0, 0.0, 0.0, 0.0, 0.0, 0.12)
+    # Moss on the broken top.
+    i = 4
+    while i < pts.length - 5
+      c.capsule(pts[i][0], pts[i][1] + 1.0, pts[i + 1][0], pts[i + 1][1] + 1.0, 2.2, 0.30, 0.50, 0.20, 0.95)
+      i += 1
+    end
+    # The hollow doorway; the marmots' eyes are drawn live by the view
+    # (STUMP_EYES), so they can look about and blink.
+    c.ellipse(cx, h + 2.0, 24.0, 34.0, 0.32, 0.18, 0.11, 1.0)
+    c.ellipse(cx, h + 3.0, 19.0, 30.0, 0.05, 0.03, 0.03, 1.0)
+    # The fallen log across it, cut end toward us on the left.
+    c.capsule(cx - 40.0, 56.0, cx + 50.0, 54.0, 8.0, 0.42, 0.27, 0.16, 1.0)
+    c.capsule(cx - 36.0, 51.5, cx + 46.0, 49.5, 1.6, 0.58, 0.40, 0.25, 0.7)
+    c.disc(cx - 40.0, 56.0, 8.0, 0.80, 0.62, 0.40, 1.0)
+    c.ring(cx - 40.0, 56.0, 5.0, 0.7, 0.62, 0.44, 0.26, 0.9)
+    c.ring(cx - 40.0, 56.0, 2.4, 0.6, 0.62, 0.44, 0.26, 0.9)
+    c.capsule(cx + 4.0, 47.5, cx + 30.0, 47.0, 1.8, 0.30, 0.50, 0.20, 0.95)
+    ferns(c, 14.0, h - 3.0, 1.0)
+    ferns(c, w - 14.0, h - 3.0, 1.1)
+    ferns(c, cx + 34.0, h - 2.0, 0.7)
+    c.to_texture(@renderer, true)
+  end
+
+  # The stump once it's blasted open: split down to a low jagged ring
+  # round the dark hollow, the log knocked aside, chips everywhere.
+  def build_stump_ruin
+    w = DRIFT_W
+    h = DRIFT_H
+    c = Canvas.new(w.to_i, h.to_i)
+    cx = w / 2.0
+    base = h + 2.0
+    rng = Random.new(89)
+    c.shadow_ellipse(cx, h - 3.0, w / 2.0, 6.0, 4.0, 0.2, 0.5)
+    back = [[cx - 50.0, base]]
+    front = [[cx - 66.0, base], [cx - 56.0, base - 8.0]]
+    i = 0
+    while i <= 14
+      x = cx - 46.0 + i * 92.0 / 14.0
+      back.push([x, base - 22.0 - rng.rand * 14.0])
+      front.push([x, (x - cx).abs < 22.0 ? base - 4.0 : base - 12.0 - rng.rand * 14.0])
+      i += 1
+    end
+    back.push([cx + 50.0, base])
+    front.push([cx + 56.0, base - 8.0])
+    front.push([cx + 66.0, base])
+    fill_below(c, back, base.to_i, 0.30, 0.17, 0.10)
+    fill_below(c, front, base.to_i, 0.50, 0.29, 0.18)
+    x = cx - 44.0
+    while x < cx + 46.0
+      c.capsule(x, base - 24.0, x, base, 0.9, 0.34, 0.18, 0.11, 0.8) if (x - cx).abs > 22.0
+      x += 7.0
+    end
+    # Splinters and wood chips.
+    i = 0
+    while i < 12
+      bx = 8.0 + rng.rand * (w - 16.0)
+      by = h - 3.0 - rng.rand * 6.0
+      a = rng.rand * Math::PI
+      c.capsule(bx, by, bx + Math.cos(a) * 5.0, by - Math.sin(a) * 2.0, 1.0, 0.78, 0.60, 0.40, 1.0)
+      i += 1
+    end
+    # The log, rolled off to the right.
+    c.capsule(w - 46.0, h - 7.0, w - 8.0, h - 8.0, 6.0, 0.42, 0.27, 0.16, 1.0)
+    c.disc(w - 46.0, h - 7.0, 6.0, 0.80, 0.62, 0.40, 1.0)
+    c.ring(w - 46.0, h - 7.0, 3.5, 0.6, 0.62, 0.44, 0.26, 0.9)
+    ferns(c, 12.0, h - 3.0, 0.9)
+    c.to_texture(@renderer, true)
+  end
+
+  # Where the pairs of marmot eyes sit in the stump texture (left eye of
+  # each pair; the right one is STUMP_EYE_GAP further on).
+  STUMP_EYES = [[65.0, 43.0], [77.0, 43.5]]
+  STUMP_EYE_GAP = 4.2
+
+  # One glinting eye, drawn small.
+  def build_eye
+    c = Canvas.new(8, 8)
+    c.disc(4.0, 4.0, 3.4, 1.0, 0.85, 0.35, 1.0)
+    c.disc(3.0, 3.0, 1.0, 1.0, 1.0, 0.9, 0.8)
+    c.to_texture(@renderer, true)
+  end
+
+  # Marmot coats: [fur, belly, face and feet].
+  MARMOT_COATS = [
+    [[0.70, 0.68, 0.64], [0.86, 0.84, 0.80], [0.20, 0.18, 0.17]],   # hoary, silver with a dark mask
+    [[0.56, 0.42, 0.26], [0.90, 0.72, 0.38], [0.30, 0.22, 0.15]],   # yellow-bellied
+    [[0.46, 0.32, 0.21], [0.62, 0.48, 0.34], [0.26, 0.18, 0.12]],   # Olympic brown
+  ]
+
+  # A marmot facing right. Frames as the goats': 0 on all fours, 1 and 2
+  # scampering, 3 sat up on its haunches waving, 4 sat up whistling.
+  def paint_marmot(c, frame, coat)
+    fur = coat[0]
+    bel = coat[1]
+    dk = coat[2]
+    sh = [fur[0] * 0.8, fur[1] * 0.8, fur[2] * 0.8]
+    if frame == 3 || frame == 4
+      # Up on its haunches, the classic lookout pose.
+      c.capsule(5.0, 19.0, 2.0, 14.0, 2.0, sh[0], sh[1], sh[2], 1.0)
+      c.ellipse(11.0, 19.6, 4.0, 1.6, dk[0], dk[1], dk[2], 1.0)
+      c.ellipse(11.5, 13.5, 5.4, 7.2, fur[0], fur[1], fur[2], 1.0)
+      c.ellipse(13.2, 14.5, 3.0, 5.4, bel[0], bel[1], bel[2], 1.0)
+      hx = 13.0
+      hy = frame == 4 ? 5.0 : 5.6
+      if frame == 3
+        c.capsule(14.0, 10.0, 18.5, 4.0, 1.1, sh[0], sh[1], sh[2], 1.0)
+        c.disc(18.8, 3.6, 1.2, dk[0], dk[1], dk[2], 1.0)
+      else
+        c.capsule(14.0, 10.0, 16.0, 13.0, 1.1, sh[0], sh[1], sh[2], 1.0)
+      end
+      c.disc(hx, hy, 3.8, fur[0], fur[1], fur[2], 1.0)
+      c.disc(hx - 2.0, hy - 3.0, 1.2, sh[0], sh[1], sh[2], 1.0)
+      c.ellipse(hx + 2.4, hy + (frame == 4 ? -0.6 : 0.6), 2.4, 1.9, dk[0], dk[1], dk[2], 1.0)
+      c.disc(hx + 1.0, hy - 1.0, 0.7, 0.04, 0.04, 0.04, 1.0)
+      c.disc(hx + 4.4, hy + (frame == 4 ? -1.2 : 0.2), 0.7, 0.05, 0.04, 0.04, 1.0)
+      if frame == 4
+        c.disc(hx + 3.6, hy + 1.2, 0.8, 0.55, 0.20, 0.20, 1.0)
+      end
+      return
+    end
+    bob = frame == 1 ? -0.8 : (frame == 2 ? 0.4 : 0.0)
+    legs = []
+    if frame == 1
+      legs = [[7.0, 16.0, 4.0, 20.0], [15.0, 16.0, 18.5, 19.5]]
+    elsif frame == 2
+      legs = [[7.0, 16.0, 9.5, 20.0], [15.0, 16.0, 13.0, 20.0]]
+    else
+      legs = [[7.0, 16.0, 6.5, 20.2], [15.5, 16.0, 15.5, 20.2]]
+    end
+    legs.each do |l|
+      c.capsule(l[0], l[1] + bob, l[2], l[3], 1.5, sh[0], sh[1], sh[2], 1.0)
+      c.ellipse(l[2] + 0.6, l[3] + 0.2, 1.6, 0.9, dk[0], dk[1], dk[2], 1.0)
+    end
+    # Bushy tail, chubby body, pale belly.
+    c.capsule(4.0, 13.0 + bob, 0.8, 9.5 + bob, 2.1, sh[0], sh[1], sh[2], 1.0)
+    c.ellipse(11.0, 13.6 + bob, 8.2, 5.4, fur[0], fur[1], fur[2], 1.0)
+    c.ellipse(11.5, 16.4 + bob, 6.0, 2.2, bel[0], bel[1], bel[2], 1.0)
+    c.capsule(6.0, 10.0 + bob, 14.0, 9.4 + bob, 1.0, 1.0, 1.0, 1.0, 0.25)
+    # Head: round ear, dark muzzle, beady eye.
+    hx = 19.0
+    hy = 11.6 + bob
+    c.disc(hx, hy, 3.8, fur[0], fur[1], fur[2], 1.0)
+    c.disc(hx - 1.8, hy - 3.0, 1.2, sh[0], sh[1], sh[2], 1.0)
+    c.ellipse(hx + 2.6, hy + 0.8, 2.3, 1.8, dk[0], dk[1], dk[2], 1.0)
+    c.disc(hx + 4.6, hy + 0.4, 0.7, 0.05, 0.04, 0.04, 1.0)
+    c.disc(hx + 0.8, hy - 1.0, 0.7, 0.04, 0.04, 0.04, 1.0)
+  end
+
+  # [coat][frame], like the goats'.
+  def build_marmot_frames
+    coats = []
+    MARMOT_COATS.each do |coat|
+      list = []
+      f = 0
+      while f < GOAT_FRAMES
+        c = Canvas.new(GOAT_W, GOAT_H)
+        paint_marmot(c, f, coat)
+        list.push(c.to_texture(@renderer, true))
+        f += 1
+      end
+      coats.push(list)
+    end
+    coats
+  end
+
+  BIGFOOT_FUR  = [0.42, 0.28, 0.17]
+  BIGFOOT_SHADE = [0.29, 0.19, 0.12]
+  BIGFOOT_SKIN = [0.26, 0.19, 0.15]
+
+  # A pinecone, Bigfoot's ammunition: rows of woody scales.
+  def build_pinecone
+    c = Canvas.new(16, 16)
+    c.ellipse(8.0, 8.0, 5.2, 7.0, 0.42, 0.26, 0.14, 1.0)
+    y = 3.0
+    row = 0
+    while y < 14.0
+      half = 4.6 * Math.sqrt(1.0 - ((y - 8.0) / 7.2) ** 2)
+      x = 8.0 - half + (row % 2 == 0 ? 1.0 : 2.4)
+      while x < 8.0 + half - 0.5
+        c.ellipse(x, y, 1.4, 1.0, 0.62, 0.42, 0.24, 1.0)
+        c.capsule(x - 1.2, y + 0.9, x + 1.2, y + 0.9, 0.35, 0.24, 0.14, 0.08, 0.9)
+        x += 2.8
+      end
+      y += 2.2
+      row += 1
+    end
+    c.disc(6.0, 5.0, 2.0, 1.0, 0.9, 0.7, 0.25)
+    c.to_texture(@renderer, true)
+  end
+
+  # Great horned owl, facing right: 0 wings up, 1 wings down, 2 stooping
+  # with its wings folded back.
+  def build_owl(frame)
+    c = Canvas.new(EAGLE_W, EAGLE_H)
+    brn = [0.46, 0.34, 0.22]
+    dk = [0.30, 0.21, 0.13]
+    lt = [0.74, 0.60, 0.42]
+    if frame == 0
+      c.plastic_poly([[28.0, 17.0], [46.0, 17.0], [40.0, 5.0], [30.0, 0.5], [18.0, 1.5]], 1.0, brn[0], brn[1], brn[2], 1.0, 1.5)
+      [22.0, 28.0, 34.0].each { |bx| c.capsule(bx, 3.0, bx + 5.0, 13.0, 0.8, lt[0], lt[1], lt[2], 0.6) }
+    elsif frame == 1
+      c.plastic_poly([[28.0, 19.0], [46.0, 19.0], [40.0, 30.0], [28.0, 33.5], [19.0, 31.0]], 1.0, brn[0], brn[1], brn[2], 1.0, 1.5)
+      [23.0, 29.0, 35.0].each { |bx| c.capsule(bx, 30.0, bx + 5.0, 21.0, 0.8, lt[0], lt[1], lt[2], 0.6) }
+    end
+    # Short tail, barred.
+    c.poly([[26.0, 16.5], [15.0, 15.5], [14.0, 21.0], [26.0, 21.5]], 0.8, dk[0], dk[1], dk[2], 1.0)
+    c.capsule(17.0, 17.0, 17.0, 20.0, 0.6, lt[0], lt[1], lt[2], 0.7)
+    c.capsule(21.0, 17.0, 21.0, 20.5, 0.6, lt[0], lt[1], lt[2], 0.7)
+    # Stout body, mottled, paler and barred below.
+    c.ellipse(37.0, 18.5, 13.0, 6.6, brn[0], brn[1], brn[2], 1.0)
+    c.ellipse(39.0, 21.0, 9.0, 3.6, lt[0], lt[1], lt[2], 1.0)
+    [33.0, 37.0, 41.0, 45.0].each { |bx| c.capsule(bx, 19.5, bx + 1.5, 23.5, 0.5, dk[0], dk[1], dk[2], 0.8) }
+    if frame == 2
+      c.plastic_poly([[22.0, 15.5], [47.0, 14.5], [42.0, 20.0], [24.0, 21.0]], 1.0, brn[0], brn[1], brn[2], 1.0, 1.5)
+      c.capsule(26.0, 17.0, 42.0, 16.5, 0.7, lt[0], lt[1], lt[2], 0.6)
+    end
+    # Big round head with ear tufts, a tawny facial disc and a yellow eye.
+    c.sphere(51.0, 14.5, 7.4, 0.8, brn[0], brn[1], brn[2], 1.0, 0.15)
+    c.poly([[46.0, 9.0], [47.0, 2.0], [50.0, 8.0]], 0.4, dk[0], dk[1], dk[2], 1.0)
+    c.poly([[51.0, 8.0], [53.5, 1.5], [55.0, 8.5]], 0.4, dk[0], dk[1], dk[2], 1.0)
+    c.ellipse(54.0, 15.0, 4.6, 5.2, 0.80, 0.58, 0.34, 1.0)
+    c.disc(55.0, 13.4, 2.0, 1.0, 0.80, 0.15, 1.0)
+    c.disc(55.6, 13.4, 1.0, 0.04, 0.03, 0.03, 1.0)
+    c.poly([[57.5, 15.0], [60.5, 16.4], [57.5, 18.6]], 0.3, 0.22, 0.20, 0.20, 1.0)
+    c.capsule(52.0, 19.5, 57.0, 20.0, 0.7, 1.0, 1.0, 0.95, 0.8)
+    c.capsule(38.0, 24.5, 41.0, 27.0, 1.0, 0.25, 0.22, 0.20, 1.0)
+    c.capsule(41.0, 24.5, 44.0, 27.0, 1.0, 0.25, 0.22, 0.20, 1.0)
+    c.to_texture(@renderer, true)
+  end
+
   # ---- Status panel ----
 
   def inset_box(c, x, y, w, h)
@@ -898,7 +2104,7 @@ class Art
     c.text(@font_label, text, x + 10, y + 5, 0.62, 0.64, 0.72, 1.0, :left)
   end
 
-  def build_hud
+  def build_hud(label)
     c = Canvas.new(WINDOW_W, HUD_H)
     c.brushed(0, 0, WINDOW_W, HUD_H, 0.26, 3)
     c.capsule(0.0, 1.5, WINDOW_W.to_f, 1.5, 1.0, 0.55, 0.57, 0.62, 0.8)
@@ -910,7 +2116,7 @@ class Art
       x += 64.0
     end
     by = HUD_BOX_Y - HUD_Y
-    label_box(c, HUD_BOX1_X, by, HUD_BOX_W, HUD_BOX_H, "GOATS")
+    label_box(c, HUD_BOX1_X, by, HUD_BOX_W, HUD_BOX_H, label)
     label_box(c, HUD_BOX2_X, by, HUD_BOX_W, HUD_BOX_H, "SCORE")
     label_box(c, HUD_BOX3_X, by, HUD_BOX_W, HUD_BOX_H, "MISSION")
     c.text(@font_small, "ABOARD", HUD_BOX1_X + 12, by + 40, 0.62, 0.64, 0.72, 1.0, :left)
@@ -944,7 +2150,7 @@ class Art
 
   # ---- Title logo ----
 
-  def build_logo
+  def build_logo(sub)
     c = Canvas.new(LOGO_W, LOGO_H)
     cx = LOGO_W / 2
     title = "CAPRICOPTER"
@@ -962,7 +2168,6 @@ class Art
     c.text(@font_logo, title, cx - 1, 3, 1.0, 1.0, 1.0, 0.55, :center)
     c.shadow_poly([[cx - 210.0, 140.0], [cx + 210.0, 140.0], [cx + 210.0, 182.0], [cx - 210.0, 182.0]], 5.0, 0.0, 0.6)
     c.plastic_poly([[cx - 206.0, 136.0], [cx + 206.0, 136.0], [cx + 206.0, 178.0], [cx - 206.0, 178.0]], 8.0, 0.80, 0.16, 0.13, 1.0, 3.0)
-    sub = "SAVE THE MOUNTAIN GOATS"
     c.text(@font_sub, sub, cx + 1, 142, 0.0, 0.0, 0.0, 0.5, :center)
     c.text(@font_sub, sub, cx, 141, 1.0, 1.0, 1.0, 1.0, :center)
     c.to_texture(@renderer, true)
