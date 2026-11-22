@@ -209,7 +209,7 @@ class Game
 
   def new_yeti(x, dir)
     { x: x, dir: dir, hp: YETI_HP, fire_ms: 1500.0 + @rng.rand * 1500.0, flash: 0.0, alive: true,
-      arm: 0.0, throw_ms: 0.0, wobble: @rng.rand * TWO_PI }
+      arm: 0.0, throw_ms: 0.0, windup: 0.0, wobble: @rng.rand * TWO_PI }
   end
 
   # ---- Input ----
@@ -909,11 +909,10 @@ class Game
       t[:wobble] = t[:wobble] + 0.12
       dx = c.x - t[:x]
       if c.alive && dx.abs < 760.0
-        # Lumber closer, but hold off at a comfortable throwing distance.
-        if dx.abs > 320.0
-          t[:dir] = dx > 0.0 ? 1 : -1
-          t[:x] = t[:x] + t[:dir] * YETI_SPEED
-        end
+        # Face the chopper; lumber closer, but hold off at a comfortable
+        # throwing distance.
+        t[:dir] = dx > 0.0 ? 1 : -1
+        t[:x] = t[:x] + t[:dir] * YETI_SPEED if dx.abs > 320.0
       else
         t[:x] = t[:x] + t[:dir] * YETI_SPEED * 0.7
         t[:dir] = -1 if t[:x] > FENCE_X - 140.0
@@ -923,28 +922,53 @@ class Game
       t[:x] = FENCE_X - 90.0 if t[:x] > FENCE_X - 90.0
       t[:x] = WORLD_L + 40.0 if t[:x] < WORLD_L + 40.0
       g = ground_y(t[:x])
-      hand_y = g - 36.0
+      shoulder_y = g - YETI_SHOULDER
       if c.alive
-        want = Math.atan2(c.y - hand_y, dx)
+        want = Math.atan2(c.y - shoulder_y, dx)
         t[:arm] = t[:arm] + (want - t[:arm]) * 0.08
       end
       near = g - 22.0 - c.y < YETI_FIRE_ALT
+      # The last YETI_WINDUP_MS before a throw, with the chopper about in
+      # reach, it scoops a snowball and holds it up overhead (0..1; it waits
+      # there, ball up, until the chopper comes in range). Only for show.
+      t[:windup] = 0.0
+      if c.alive && dx.abs < YETI_RANGE + 160.0 && t[:fire_ms] < YETI_WINDUP_MS
+        w = 1.0 - t[:fire_ms] / YETI_WINDUP_MS
+        t[:windup] = w > 1.0 ? 1.0 : w
+      end
       if c.alive && near && dx.abs < YETI_RANGE && t[:fire_ms] <= 0.0 && @screen != :dead
         t[:fire_ms] = YETI_FIRE_MS * (@mission > 2 ? 0.75 : 1.0) + @rng.rand * 600.0
-        t[:throw_ms] = 260.0
-        sx = t[:x] + Math.cos(t[:arm]) * 18.0
-        sy = hand_y + Math.sin(t[:arm]) * 18.0
-        # Lead the target a little.
+        t[:throw_ms] = YETI_THROW_MS
+        t[:windup] = 0.0
+        # Let go from the hand, just past straight up overhead.
+        sx = t[:x] + t[:dir] * 1.0
+        sy = shoulder_y - 22.0
+        # Lead the target a little, and lob it there.
         tx = c.x + c.vx * 18.0
         ty = c.y + c.vy * 18.0
-        a = Math.atan2(ty - sy, tx - sx)
-        @snowballs.push({ x: sx, y: sy, vx: Math.cos(a) * SNOWBALL_SPEED, vy: Math.sin(a) * SNOWBALL_SPEED })
+        slope = yeti_lob(tx - sx, ty - sy)
+        side = tx > sx ? 1.0 : -1.0
+        k = SNOWBALL_SPEED / Math.sqrt(1.0 + slope * slope)
+        @snowballs.push({ x: sx, y: sy, vx: side * k, vy: slope * k })
         emit(:yeti_fire)
       end
     end
     keep = []
     @yetis.each { |t| keep.push(t) if t[:alive] }
     @yetis = keep
+  end
+
+  # The launch slope (vy / |vx|; negative is up) for a snowball thrown at
+  # SNOWBALL_SPEED to come down through a point dx across and dy below (by
+  # update_snowballs: SNOWBALL_GRAVITY a step). The flatter of the two
+  # arcs that get there; a 45-degree heave if it's out of reach.
+  def yeti_lob(dx, dy)
+    x = dx.abs
+    return dy < 0.0 ? -10.0 : 10.0 if x < 1.0
+    a = SNOWBALL_GRAVITY * x * x / (2.0 * SNOWBALL_SPEED * SNOWBALL_SPEED)
+    disc = x * x - 4.0 * a * (a - dy)
+    return -1.0 if disc < 0.0
+    (0.0 - x + Math.sqrt(disc)) / (2.0 * a)
   end
 
   # A yeti that's had enough stomps off into the mist.
@@ -962,7 +986,7 @@ class Game
     c = @chopper
     keep = []
     @snowballs.each do |s|
-      s[:vy] = s[:vy] + 0.02
+      s[:vy] = s[:vy] + SNOWBALL_GRAVITY
       s[:x] = s[:x] + s[:vx]
       s[:y] = s[:y] + s[:vy]
       alive = true
@@ -1830,7 +1854,7 @@ class Game
       end
       ss.each do |s|
         next if s[4] <= 0.0
-        s[3] += 0.02
+        s[3] += SNOWBALL_GRAVITY
         s[0] += s[2]
         s[1] += s[3]
         if s[1] >= ground_y(s[0]) - 4.0 || s[1] < 0.0

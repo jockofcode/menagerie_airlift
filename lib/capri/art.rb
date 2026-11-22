@@ -759,8 +759,25 @@ class Art
   # Throwing arm, pivoting at its left end (the shoulder).
   def build_yeti_arm
     c = Canvas.new(ARM_W, ARM_H)
-    c.capsule(4.0, 5.0, 20.0, 5.0, 3.8, YETI_FUR[0], YETI_FUR[1], YETI_FUR[2], 1.0)
-    c.sphere(22.0, 5.0, 4.4, 0.8, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0, 0.3)
+    fur = YETI_FUR
+    sh = [0.70, 0.76, 0.88]
+    # A shaggy arm, thick at the shoulder...
+    c.capsule(4.0, 5.0, 18.0, 5.0, 3.4, sh[0], sh[1], sh[2], 1.0)
+    c.capsule(4.0, 4.6, 17.0, 4.6, 2.9, fur[0], fur[1], fur[2], 1.0)
+    rng = Random.new(31)
+    i = 0
+    while i < 7
+      x = 5.0 + i * 2.0
+      up = i % 2 == 0 ? -1.0 : 1.0
+      c.capsule(x, 5.0 + up * 2.6, x - 1.6, 5.0 + up * (4.2 + rng.rand * 0.6), 0.8, sh[0], sh[1], sh[2], 1.0)
+      i += 1
+    end
+    # ...and a big bare mitt of a hand with stubby fingers.
+    c.ellipse(21.0, 5.0, 3.6, 3.2, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
+    c.capsule(22.5, 2.6, 25.2, 2.4, 1.1, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
+    c.capsule(23.0, 4.6, 26.0, 4.6, 1.1, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
+    c.capsule(22.5, 6.6, 25.2, 7.0, 1.1, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
+    c.capsule(19.5, 7.4, 21.6, 8.6, 1.0, YETI_SKIN[0], YETI_SKIN[1], YETI_SKIN[2], 1.0)
     c.to_texture(@renderer, true)
   end
 

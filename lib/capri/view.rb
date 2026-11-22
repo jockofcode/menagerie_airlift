@@ -294,14 +294,38 @@ class View
         @r.draw_texture(@art.yeti, (cx - Art::YETI_W / 2.0).round, (cy - Art::YETI_H / 2.0).round, w: Art::YETI_W, h: Art::YETI_H,
                         flip: left ? :horizontal : :none)
       end
-      # Throwing arm: wound back while it hurls, otherwise aimed.
-      deg = tk[:arm] * 180.0 / Math::PI
-      deg -= 70.0 * (tk[:throw_ms] / 260.0) * (left ? -1.0 : 1.0) if tk[:throw_ms] > 0.0
+      # Throwing arm, worked out facing right (0 = straight ahead, + = down)
+      # and mirrored for a yeti facing left: it hangs at the side, swings
+      # down and back and up behind the head with a snowball while winding
+      # up, and whips over the top and down past the chopper's direction
+      # once the ball is away (it leaves the hand just past overhead).
+      aim = tk[:arm] * 180.0 / Math::PI
+      aim = 180.0 - aim if left
+      aim -= 360.0 while aim > 180.0
+      aim += 360.0 while aim < -180.0
+      w = tk[:windup]
+      ang = 70.0
+      if tk[:throw_ms] > 0.0
+        p = Math.sqrt(1.0 - tk[:throw_ms] / YETI_THROW_MS)
+        ang = -100.0 + (aim + 80.0 + 100.0) * p
+      elsif w > 0.0
+        e = w * w * (3.0 - 2.0 * w)
+        ang = 70.0 + (210.0 - 70.0) * e
+      end
+      deg = left ? 180.0 - ang : ang
+      shoulder_x = cx + (left ? -5 : 5)
+      shoulder_y = (g - YETI_SHOULDER - bob + @oy).round
+      if w > 0.15 && tk[:throw_ms] <= 0.0
+        # The snowball in its fist, packed bigger as it winds up.
+        k = (w - 0.15) / 0.3
+        k = 1.0 if k > 1.0
+        r = deg * Math::PI / 180.0
+        sprite_lit(@art.snowball, shoulder_x + Math.cos(r) * 22.0, shoulder_y + Math.sin(r) * 22.0, 16.0 * k, 16.0 * k,
+                   0.0, false, 255)
+      end
       arm = @art.yeti_arm
       arm.set_color_mod(@lr, @lg, @lb)
       arm.set_alpha_mod(255)
-      shoulder_x = cx + (left ? -6 : 6)
-      shoulder_y = (g - 36.0 - bob + @oy).round
       @r.draw_texture(arm, shoulder_x - 4, shoulder_y - 5, w: Art::ARM_W, h: Art::ARM_H, angle: deg, center: [4, 5])
     end
     game.snowballs.each do |s|
