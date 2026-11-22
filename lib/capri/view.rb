@@ -611,16 +611,20 @@ class View
         k = game.screen_ms / (CRATE_INTRO_MS + 400.0)
         a = k < 0.12 ? k / 0.12 : (k > 0.8 ? (1.0 - k) / 0.2 : 1.0)
         a = (a * 255.0).to_i
-        text(@font_big, "SUPPLY DROP", cx + 3, 183, 0, 0, 0, a * 2 / 3, :center)
-        text(@font_big, "SUPPLY DROP", cx, 180, 255, 220, 120, a, :center)
-        text(@font_mid, "CATCH THE CRATES BEFORE THEY HIT THE GROUND", cx + 2, 252, 0, 0, 0, a * 2 / 3, :center)
-        text(@font_mid, "CATCH THE CRATES BEFORE THEY HIT THE GROUND", cx, 250, 255, 255, 255, a, :center)
+        title = level_text("SUPPLY DROP", "FISH DROP", "BERRY DROP")
+        line = level_text("CATCH THE CRATES BEFORE THEY HIT THE SNOW", "CATCH THE FISH BEFORE THEY HIT THE ICE",
+                          "CATCH THE HUCKLEBERRIES BEFORE THEY HIT THE GROUND")
+        text(@font_big, title, cx + 3, 183, 0, 0, 0, a * 2 / 3, :center)
+        text(@font_big, title, cx, 180, 255, 220, 120, a, :center)
+        text(@font_mid, line, cx + 2, 252, 0, 0, 0, a * 2 / 3, :center)
+        text(@font_mid, line, cx, 250, 255, 255, 255, a, :center)
         text(@font_hud, "#{SCORE_CRATE} A CRATE   #{num(SCORE_CRATE_ALL)} FOR ALL #{CRATE_COUNT}", cx, 310, 200, 200, 210, a, :center)
       end
       if game.crates_done?
         dim_field(110)
         all = game.crates_caught == CRATE_COUNT
-        shadowed(@font_big, all ? "ALL CRATES CAUGHT" : "SUPPLY DROP OVER", cx, 140, 255, 230, 120, :center)
+        head = all ? level_text("ALL CRATES CAUGHT", "ALL FISH CAUGHT", "ALL BERRIES CAUGHT") : level_text("SUPPLY DROP OVER", "FISH DROP OVER", "BERRY DROP OVER")
+        shadowed(@font_big, head, cx, 140, 255, 230, 120, :center)
         shadowed(@font_mid, "CAUGHT  #{game.crates_caught}", cx - 120, 230, 140, 240, 160, :center)
         shadowed(@font_mid, "SMASHED  #{game.crates_missed}", cx + 120, 230, 255, 130, 120, :center)
         shadowed(@font_mid, "BONUS  #{num(game.crate_score)}", cx, 300, 255, 255, 255, :center)

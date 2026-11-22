@@ -1254,6 +1254,13 @@ class Game
     end
   end
 
+  # Splinters of the level's crate: pine boards, or the orange case.
+  def crate_color
+    return [0.93, 0.44, 0.12] if arctic?
+    return [0.78, 0.62, 0.40] if cascadia?
+    [0.62, 0.44, 0.24]
+  end
+
   # True once the last crate is down and the tally is showing.
   def crates_done?
     @screen == :bonus && @crate_done_ms >= 0.0
@@ -1293,7 +1300,9 @@ class Game
         emit(:saved)
       elsif k[:y] + half >= GROUND_Y
         @crates_missed += 1
-        debris(k[:x], GROUND_Y - 10.0, 10, [0.62, 0.44, 0.24])
+        debris(k[:x], GROUND_Y - 10.0, 10, crate_color)
+        # Huckleberries scattered across the forest floor.
+        debris(k[:x], GROUND_Y - 8.0, 8, [0.30, 0.24, 0.55]) if cascadia?
         snow_burst(k[:x], GROUND_Y - 6.0, 8)
         popup(k[:x], GROUND_Y - 50.0, "SMASHED", [1.0, 0.5, 0.4], false)
         @shake_y = 3.0

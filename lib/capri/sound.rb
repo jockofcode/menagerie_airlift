@@ -1,7 +1,8 @@
 # Sound effects synthesized at startup (each rendered to a WAV in the temp
 # directory, loaded into its own SDL::Sound stream, then deleted), the
 # rotor drone on synth channel 0 while flying, and a four-channel chip
-# tune on all channels for the title and results screens.
+# tune on all channels for the title and results screens. The animals and
+# villains have a voice for each level (SoundBank::THEMED).
 
 class Sfx
   RATE = 22050
@@ -113,6 +114,23 @@ end
 class SoundBank
   ROTOR_CH = 0
 
+  # Events whose sound depends on the level: [mountain, arctic, Cascadia].
+  # Penguins honk and marmots whistle where goats bleat; gulls cry and owls
+  # hoot where eagles beat their wings and screech; Bigfoot grunts lower,
+  # whoops when he's driven off, and his pinecones land with a woody thock.
+  # The arctic's yetis keep the mountain yetis' voices.
+  THEMED = {
+    board: [:board, :penguin_board, :marmot_board],
+    exit: [:exit, :penguin_exit, :marmot_exit],
+    goat_hit: [:goat_hit, :penguin_hit, :marmot_hit],
+    eagle: [:eagle, :gull, :owl],
+    screech: [:screech, :gull_dive, :owl_dive],
+    squawk: [:squawk, :gull_squawk, :owl_squawk],
+    yeti_fire: [:yeti_fire, :yeti_fire, :bigfoot_fire],
+    yeti_off: [:yeti_off, :yeti_off, :bigfoot_off],
+    splat: [:splat, :splat, :thock],
+  }
+
   def initialize
     @sounds = {}
     @last_played = {}
@@ -133,6 +151,8 @@ class SoundBank
   end
 
   def play(name, now_ms)
+    themed = THEMED[name]
+    name = themed[LEVEL[0]] if themed != nil
     s = @sounds[name]
     return if s == nil
     return if now_ms - @last_played[name] < @min_gap[name]
@@ -193,6 +213,135 @@ class SoundBank
       i += 1
     end
     s.noise(start_ms, dur_ms, amp * 0.25, 2.0, 0.5, 17)
+  end
+
+  # A penguin's honk: a nasal saw with a square overtone, swelling then
+  # sagging in pitch.
+  def honk(s, start_ms, dur_ms, f, amp)
+    s.tone(start_ms, dur_ms * 0.4, f * 0.92, f, amp, 0.4, 2)
+    s.tone(start_ms + dur_ms * 0.4, dur_ms * 0.6, f, f * 0.86, amp, 1.6, 2)
+    s.tone(start_ms, dur_ms, f * 2.0, f * 1.8, amp * 0.3, 1.2, 1)
+    s.noise(start_ms, dur_ms * 0.6, amp * 0.15, 3.0, 0.6, 19)
+  end
+
+  # A marmot's whistle: a pure, sharp chirp.
+  def whistle(s, start_ms, dur_ms, f0, f1, amp)
+    s.tone(start_ms, dur_ms, f0, f1, amp, 2.0, 0)
+    s.tone(start_ms, dur_ms, f0 * 2.0, f1 * 2.0, amp * 0.12, 3.0, 0)
+  end
+
+  # A great horned owl's hoot: a low soft sine with a breathy edge.
+  def hoot(s, start_ms, dur_ms, f, amp)
+    s.tone(start_ms, dur_ms, f * 1.04, f * 0.94, amp, 1.2, 0)
+    s.tone(start_ms, dur_ms, f * 2.08, f * 1.88, amp * 0.18, 2.0, 3)
+    s.noise(start_ms, dur_ms, amp * 0.12, 1.5, 0.92, 23)
+  end
+
+  # A gull's cry: a quick rise, then a long harsh fall.
+  def gull_cry(s, start_ms, f, amp)
+    s.tone(start_ms, 60.0, f * 0.8, f * 1.1, amp, 0.5, 2)
+    s.tone(start_ms + 60.0, 170.0, f * 1.1, f * 0.62, amp, 1.4, 2)
+    s.tone(start_ms, 230.0, f * 2.2, f * 1.3, amp * 0.3, 1.4, 1)
+  end
+
+  # Voices for the arctic and Cascadia (SoundBank::THEMED picks them).
+  def build_level_voices
+    s = sfx(:penguin_board, 300)
+    honk(s, 0.0, 90.0, 480.0, 0.15)
+    honk(s, 110.0, 170.0, 540.0, 0.16)
+    add(s, 90.0)
+
+    s = sfx(:penguin_exit, 220)
+    honk(s, 0.0, 70.0, 600.0, 0.12)
+    honk(s, 90.0, 110.0, 640.0, 0.12)
+    add(s, 90.0)
+
+    s = sfx(:penguin_hit, 450)
+    honk(s, 0.0, 120.0, 700.0, 0.2)
+    s.tone(110.0, 320.0, 820.0, 300.0, 0.16, 2.5, 2)
+    add(s, 80.0)
+
+    s = sfx(:marmot_board, 160)
+    whistle(s, 0.0, 80.0, 2600.0, 3000.0, 0.13)
+    add(s, 90.0)
+
+    s = sfx(:marmot_exit, 220)
+    whistle(s, 0.0, 60.0, 3000.0, 3200.0, 0.1)
+    whistle(s, 100.0, 70.0, 3000.0, 3300.0, 0.1)
+    add(s, 90.0)
+
+    # The alarm whistle, falling away as it tumbles.
+    s = sfx(:marmot_hit, 460)
+    whistle(s, 0.0, 140.0, 3100.0, 3300.0, 0.18)
+    whistle(s, 160.0, 280.0, 3200.0, 1700.0, 0.15)
+    add(s, 80.0)
+
+    s = sfx(:gull, 1100)
+    gull_cry(s, 0.0, 1500.0, 0.10)
+    gull_cry(s, 300.0, 1450.0, 0.09)
+    i = 0
+    while i < 3
+      s.tone(640.0 + i * 120.0, 80.0, 1300.0, 1100.0, 0.08, 2.0, 2)
+      i += 1
+    end
+    add(s, 800.0)
+
+    s = sfx(:gull_dive, 700)
+    s.tone(0.0, 90.0, 1500.0, 2000.0, 0.10, 0.5, 2)
+    s.tone(90.0, 560.0, 2000.0, 1100.0, 0.10, 1.3, 2)
+    s.tone(0.0, 650.0, 4000.0, 2200.0, 0.03, 1.5, 1)
+    add(s, 300.0)
+
+    s = sfx(:gull_squawk, 300)
+    s.tone(0.0, 100.0, 1300.0, 850.0, 0.16, 2.0, 2)
+    s.tone(130.0, 140.0, 1200.0, 700.0, 0.16, 2.0, 2)
+    s.noise(0.0, 120.0, 0.15, 5.0, 0.4, 21)
+    add(s, 80.0)
+
+    # "Hoo, hoo-hoo, hoo, hoo."
+    s = sfx(:owl, 1500)
+    hoot(s, 0.0, 200.0, 300.0, 0.22)
+    hoot(s, 330.0, 100.0, 300.0, 0.18)
+    hoot(s, 460.0, 100.0, 290.0, 0.18)
+    hoot(s, 690.0, 280.0, 280.0, 0.22)
+    hoot(s, 1080.0, 300.0, 270.0, 0.2)
+    add(s, 800.0)
+
+    # Owls fly silent: barely a hush of feathers, and a clack of the bill.
+    s = sfx(:owl_dive, 500)
+    s.swoosh(0.0, 420.0, 0.12, 0.95, 0.85, 25)
+    s.noise(300.0, 20.0, 0.25, 8.0, 0.2, 26)
+    s.noise(360.0, 20.0, 0.22, 8.0, 0.2, 27)
+    add(s, 300.0)
+
+    s = sfx(:owl_squawk, 360)
+    s.tone(0.0, 120.0, 330.0, 440.0, 0.22, 0.8, 0)
+    s.tone(120.0, 200.0, 440.0, 260.0, 0.2, 2.0, 3)
+    s.noise(0.0, 160.0, 0.18, 4.0, 0.6, 28)
+    add(s, 80.0)
+
+    # Bigfoot heaves a pinecone: a deep grunt and a whoosh.
+    s = sfx(:bigfoot_fire, 420)
+    s.tone(0.0, 240.0, 85.0, 55.0, 0.4, 3.0, 2)
+    s.noise(0.0, 200.0, 0.25, 4.0, 0.85, 29)
+    s.swoosh(120.0, 280.0, 0.28, 0.9, 0.6, 30)
+    add(s, 120.0)
+
+    # Driven off: the long rising-and-falling whoop.
+    s = sfx(:bigfoot_off, 1100)
+    s.tone(0.0, 520.0, 230.0, 520.0, 0.3, 0.3, 3)
+    s.tone(0.0, 520.0, 233.0, 525.0, 0.12, 0.3, 2)
+    s.tone(520.0, 480.0, 520.0, 280.0, 0.3, 1.8, 3)
+    s.tone(520.0, 480.0, 525.0, 283.0, 0.12, 1.8, 2)
+    s.noise(0.0, 700.0, 0.12, 2.0, 0.9, 31)
+    add(s, 300.0)
+
+    # A pinecone landing: a woody thock and a skitter.
+    s = sfx(:thock, 220)
+    s.tone(0.0, 70.0, 420.0, 200.0, 0.35, 7.0, 0)
+    s.noise(0.0, 40.0, 0.3, 8.0, 0.45, 32)
+    s.tone(90.0, 40.0, 520.0, 300.0, 0.12, 8.0, 0)
+    add(s, 60.0)
   end
 
   def build_all
@@ -369,6 +518,8 @@ class SoundBank
     s.tone(420.0, 700.0, 1318.0, 1318.0, 0.35, 2.0, 1)
     s.tone(420.0, 700.0, 1568.0, 1568.0, 0.2, 2.0, 0)
     add(s, 500.0)
+
+    build_level_voices
   end
 end
 

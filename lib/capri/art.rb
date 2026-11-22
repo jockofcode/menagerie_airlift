@@ -26,10 +26,12 @@ class Art
               :clouds, :cloud_spots, :pad,
               :chopper_side, :chopper_front, :rotor, :tail_rotor, :shadow,
               :raven, :bullet, :bomb, :glow, :smoke, :debris, :feather,
-              :chopper_icon, :goat_icon, :eye, :crate, :chute
+              :chopper_icon, :goat_icon, :eye
 
   # Themed art: [mountain, arctic, Cascadia], picked by the current level.
   def snowball; @snowball_l[LEVEL[0]]; end
+  def crate; @crate_l[LEVEL[0]]; end
+  def chute; @chute_l[LEVEL[0]]; end
   def logo; @logo_l[LEVEL[0]]; end
   def mountains_far; @far_l[LEVEL[0]]; end
   def mountains_near; @near_l[LEVEL[0]]; end
@@ -169,8 +171,9 @@ class Art
     @glow      = build_soft(32, 1.6, 1.0, 1.0, 1.0, 0.9)
     @smoke     = build_soft(32, 1.1, 1.0, 1.0, 1.0, 0.55)
     @debris    = build_debris
-    @crate     = build_crate
-    @chute     = build_chute
+    @crate_l   = [build_crate, build_fish_case, build_berry_crate]
+    @chute_l   = [build_chute([0.92, 0.94, 0.96], [0.88, 0.25, 0.22]), build_chute([0.96, 0.96, 0.97], [0.95, 0.48, 0.12]),
+                  build_chute([0.90, 0.84, 0.66], [0.22, 0.45, 0.25])]
     @feather   = build_feather
     @chopper_icon = build_chopper_icon
     @goat_icon = build_goat_icon
@@ -942,7 +945,7 @@ class Art
     c.to_texture(@renderer, true)
   end
 
-  # An arctic supply crate, at twice its on-screen size: cold, weathered
+  # The mountain's supply crate, at twice its on-screen size: cold, weathered
   # planks in a dark frame, a stenciled snowflake, rime frost creeping in
   # from the edges, a lumpy cap of snow on the lid and icicles under it.
   def build_crate
@@ -1036,16 +1039,133 @@ class Art
     c.to_texture(@renderer, true)
   end
 
-  # A striped canopy with its shroud lines running down to the bottom
+  # The arctic's drop: an orange insulated cargo case from the station,
+  # latched shut, a white label with a blue fish on it, frost on its
+  # corners and a skim of snow on the lid. Same layout as the crate.
+  def build_fish_case
+    w = CRATE_W
+    c = Canvas.new(w, CRATE_H)
+    x0 = 2.0
+    x1 = w - 2.0
+    y0 = CRATE_BOX_Y.to_f
+    y1 = y0 + (x1 - x0)
+    org = [0.93, 0.44, 0.12]
+    dk = [0.62, 0.26, 0.06]
+    c.shadow_poly([[x0 + 2.0, y0 + 3.0], [x1 + 1.0, y0 + 3.0], [x1 + 1.0, y1 + 2.0], [x0 + 2.0, y1 + 2.0]], 2.0, 0.3, 0.5)
+    c.plastic_poly([[x0, y0], [x1, y0], [x1, y1], [x0, y1]], 6.0, org[0], org[1], org[2], 1.0, 3.5)
+    # Lid seam and ribs.
+    c.capsule(x0 + 2.0, y0 + 11.0, x1 - 2.0, y0 + 11.0, 1.2, dk[0], dk[1], dk[2], 0.9)
+    c.capsule(x0 + 2.0, y1 - 7.0, x1 - 2.0, y1 - 7.0, 1.0, dk[0], dk[1], dk[2], 0.6)
+    # Latches.
+    [x0 + 10.0, x1 - 10.0].each do |lx|
+      c.box(lx - 3.5, y0 + 7.0, 7.0, 9.0, 1.5, 0.80, 0.82, 0.86, 1.0)
+      c.capsule(lx - 2.0, y0 + 13.5, lx + 2.0, y0 + 13.5, 0.8, 0.45, 0.47, 0.52, 1.0)
+    end
+    # The label, and the fish.
+    lx0 = x0 + 7.0
+    ly0 = y0 + 18.0
+    c.box(lx0, ly0, x1 - x0 - 14.0, 22.0, 2.0, 0.97, 0.97, 0.95, 1.0)
+    fx = w / 2.0
+    fy = ly0 + 11.0
+    c.ellipse(fx - 2.0, fy, 11.0, 5.4, 0.16, 0.36, 0.66, 1.0)
+    c.poly([[fx + 7.0, fy], [fx + 15.0, fy - 6.0], [fx + 15.0, fy + 6.0]], 0.8, 0.16, 0.36, 0.66, 1.0)
+    c.capsule(fx - 9.0, fy - 1.0, fx + 3.0, fy - 2.5, 0.9, 0.60, 0.76, 0.95, 0.8)
+    c.disc(fx - 9.0, fy - 1.2, 1.2, 0.97, 0.97, 0.95, 1.0)
+    c.capsule(fx - 5.0, fy - 4.0, fx - 5.0, fy + 4.0, 0.6, 0.10, 0.24, 0.48, 0.8)
+    # Frost on the corners, snow on the lid.
+    rng = Random.new(91)
+    n = 0
+    while n < 90
+      px = x0 + rng.rand * (x1 - x0)
+      py = y0 + rng.rand * (y1 - y0)
+      edge = [px - x0, x1 - px, py - y0, y1 - py].min
+      if edge < 7.0 && rng.rand * 7.0 > edge
+        c.disc(px, py, 0.6 + rng.rand * 1.0, 0.92, 0.96, 1.0, 0.35 + rng.rand * 0.4)
+      end
+      n += 1
+    end
+    [[12.0, 0.0, 9.0, 4.5], [26.0, -1.0, 10.0, 5.5], [40.0, 0.0, 9.0, 4.5]].each do |l|
+      c.ellipse(l[0], y0 + l[1] + 1.2, l[2], l[3], 0.72, 0.82, 0.94, 1.0)
+      c.ellipse(l[0], y0 + l[1], l[2] - 0.8, l[3] - 1.0, 0.97, 0.98, 1.0, 1.0)
+    end
+    [[14.0, 7.0], [30.0, 10.0], [43.0, 6.0]].each do |e|
+      c.poly([[e[0] - 2.0, y1 - 1.0], [e[0] + 2.0, y1 - 1.0], [e[0] + 0.3, y1 + e[1]]], 0.4, 0.78, 0.90, 1.0, 0.9)
+    end
+    c.to_texture(@renderer, true)
+  end
+
+  # Cascadia's drop: a slatted pine crate heaped with huckleberries and
+  # leaves, berries showing between the slats, a ranger's pine-tree brand
+  # on the front, moss creeping up one corner. Same layout as the crate.
+  def build_berry_crate
+    w = CRATE_W
+    c = Canvas.new(w, CRATE_H)
+    x0 = 2.0
+    x1 = w - 2.0
+    y0 = CRATE_BOX_Y.to_f + 6.0
+    y1 = CRATE_BOX_Y.to_f + (x1 - x0)
+    pine = [0.78, 0.62, 0.40]
+    dk = [0.46, 0.32, 0.18]
+    rng = Random.new(97)
+    c.shadow_poly([[x0 + 2.0, y0 + 3.0], [x1 + 1.0, y0 + 3.0], [x1 + 1.0, y1 + 2.0], [x0 + 2.0, y1 + 2.0]], 2.0, 0.3, 0.5)
+    # Inside: a dark bed of berries, seen through the gaps.
+    c.box(x0 + 2.0, y0, x1 - x0 - 4.0, y1 - y0, 1.0, 0.16, 0.12, 0.22, 1.0)
+    i = 0
+    while i < 40
+      c.disc(x0 + 4.0 + rng.rand * (x1 - x0 - 8.0), y0 + 2.0 + rng.rand * (y1 - y0 - 4.0), 2.4, 0.28, 0.24, 0.50, 1.0)
+      i += 1
+    end
+    # Slats with gaps, corner posts.
+    y = y0 + 2.0
+    while y < y1 - 4.0
+      c.box(x0, y, x1 - x0, 7.0, 1.0, pine[0], pine[1], pine[2], 1.0)
+      c.capsule(x0 + 2.0, y + 1.2, x1 - 2.0, y + 1.2, 0.6, 0.92, 0.80, 0.58, 0.6)
+      y += 10.0
+    end
+    c.grain(x0.to_i, y0.to_i, (x1 - x0).to_i, (y1 - y0).to_i, 0.2, 93, 0.3)
+    c.box(x0, y0, 5.0, y1 - y0, 1.0, dk[0], dk[1], dk[2], 1.0)
+    c.box(x1 - 5.0, y0, 5.0, y1 - y0, 1.0, dk[0], dk[1], dk[2], 1.0)
+    c.box(x0, y1 - 5.0, x1 - x0, 5.0, 1.0, dk[0], dk[1], dk[2], 1.0)
+    # The ranger's brand: a little pine tree burned into the middle slat.
+    bx = w / 2.0
+    by = y0 + 22.0
+    c.poly([[bx, by - 7.0], [bx + 6.0, by + 4.0], [bx - 6.0, by + 4.0]], 0.5, 0.32, 0.20, 0.10, 0.9)
+    c.capsule(bx, by + 4.0, bx, by + 7.0, 0.9, 0.32, 0.20, 0.10, 0.9)
+    # Moss on a corner.
+    i = 0
+    while i < 14
+      c.disc(x0 + 1.0 + rng.rand * 7.0, y1 - 1.0 - rng.rand * 14.0, 1.2 + rng.rand * 1.2, 0.30, 0.50, 0.20, 0.9)
+      i += 1
+    end
+    # A heap of berries and leaves on top.
+    i = 0
+    while i < 6
+      lx = x0 + 6.0 + i * 8.5
+      ly = y0 - 1.0 - rng.rand * 3.0
+      c.ellipse(lx, ly, 4.0, 1.8, 0.24, 0.52, 0.24, 1.0)
+      i += 1
+    end
+    i = 0
+    while i < 34
+      t = rng.rand
+      bx2 = x0 + 4.0 + t * (x1 - x0 - 8.0)
+      hump = Math.sin(t * Math::PI) * 9.0
+      by2 = y0 + 1.0 - rng.rand * hump
+      c.disc(bx2, by2, 2.6, 0.24, 0.20, 0.48, 1.0)
+      c.disc(bx2 - 0.8, by2 - 0.8, 0.9, 0.62, 0.62, 0.90, 0.8)
+      i += 1
+    end
+    c.to_texture(@renderer, true)
+  end
+
+  # A striped canopy (in the level's colors) with its shroud lines running down to the bottom
   # middle of the texture, where the crate hangs.
-  def build_chute
+  def build_chute(lo, hi)
     c = Canvas.new(CHUTE_W, CHUTE_H)
     cx = CHUTE_W / 2.0
     cy = 22.0
     rx = 28.0
     ry = 20.0
-    lo = [0.92, 0.94, 0.96]
-    hi = [0.88, 0.25, 0.22]
     # Shroud lines first, so the canopy sits over their tops.
     k = 0
     while k <= 6

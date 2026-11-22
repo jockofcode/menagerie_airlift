@@ -98,11 +98,14 @@ has landed on their own ledge, and they hop off only on the pad at the barn.
 
 ### Supply drop
 
-After each mission's results comes a bonus round over the valley by the barn: twelve crates
-parachute down, and you catch them by flying the chopper into them before they smash on the
-ground. Each one is worth 300 points, and all twelve earn another 3,000. Nothing attacks
-you, the cannon and charges are stowed, and a hard landing just bumps you. Crates fall a little
-faster and come a little closer together in each later mission.
+After each mission's results comes a bonus round over the home base: twelve crates parachute
+down, and you catch them by flying the chopper into them before they smash on the ground. Each
+one is worth 300 points, and all twelve earn another 3,000. Nothing attacks you, the cannon and
+charges are stowed, and a hard landing just bumps you. Crates fall a little faster and come a
+little closer together in each later mission. Each level has its own drop: snow-capped supply
+crates under red-and-white chutes by the barn, a **fish drop** of orange station cargo cases under
+orange-and-white chutes over the Arctic, and a **berry drop** of pine crates heaped with
+huckleberries under forest-green chutes in Cascadia.
 
 ## Levels
 
@@ -122,6 +125,10 @@ in hollow old-growth stumps, their doorways blocked by fallen logs, in clearings
 ridges of Douglas fir and red cedar under a snow-capped volcano. Bigfoot stalks the forest
 throwing pinecones, great horned owls stoop at the chopper, and the marmots scurry home to a log
 ranger station with a fire lookout.
+
+Each level sounds like itself: penguins honk and marmots whistle where goats bleat, gulls cry
+and owls hoot (and stoop almost silently) where eagles beat their wings and screech, and Bigfoot
+grunts, whoops when he's driven off, and his pinecones land with a woody thock.
 
 Action shots of all three levels are in [`assets/screenshots/action/`](assets/screenshots/action).
 
@@ -152,7 +159,7 @@ points elsewhere, `CAPRI_LAYA=0` turns Laya off, and `LAYA_BACKEND` picks its ba
 | `lib/capri/art.rb` | Skies, peaks, clouds, the mountain slices, barn, drifts, chopper, goats, yetis, birds, panel, logo, and the Arctic and Cascadia sets |
 | `lib/capri/laya_pilot.rb` | Laya's goal picks for the title demo, on a background thread |
 | `lib/capri/view.rb` | Per-frame drawing, parallax, status panel with the radar profile, overlays |
-| `lib/capri/sound.rb` | Synthesized sound effects (bleats, snowballs, screeches), rotor drone and chip tune |
+| `lib/capri/sound.rb` | Synthesized sound effects (each level's animal and villain voices), rotor drone and chip tune |
 | `tools/make_icon.rb` | Paints `assets/icons` with the same rasterizer (run `tools/make_icon.sh`) |
 
 To reshape the mountain, edit `MOUNTAIN_LEDGES` and `MOUNTAIN_PTS` in `config.rb`
