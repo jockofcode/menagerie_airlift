@@ -65,11 +65,13 @@ class LayaPilot
     end
   end
 
-  # Once a frame. Only the title demo is Laya's; a real game is the player's.
+  # Once a frame. Laya advises the title demo, and a real game only while
+  # the autopilot flies it; otherwise the game is the player's.
   def update(game, now)
     @worker.poll
     reply = @worker.reply
-    unless game.demo && game.screen == :title
+    flying = game.demo ? game.screen == :title : game.ai && game.screen == :play
+    unless flying
       game.advice = :none
       return
     end

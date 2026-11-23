@@ -9,7 +9,7 @@
 
 class Chopper
   attr_accessor :x, :y, :vx, :vy, :facing, :turn_ms, :turn_from, :landed, :aboard,
-                :tilt, :rotor, :bullet_gap, :bomb_gap, :alive, :last_side, :dust_ms
+                :tilt, :rotor, :bullet_gap, :bomb_gap, :alive, :last_side, :dust_ms, :stun_ms
 
   def initialize
     reset
@@ -32,6 +32,7 @@ class Chopper
     @bomb_gap = 0.0
     @alive = true
     @dust_ms = 0.0
+    @stun_ms = 0.0
   end
 
   def skid_y
@@ -52,16 +53,23 @@ class Game
               :lost, :demo, :paused, :scores, :entry, :entry_cursor, :new_high, :message,
               :message_ms, :sounds, :day, :mission_saved, :mission_lost, :mission_bonus,
               :perfect, :alarm_ms, :level_ms, :deaths, :crash_reason, :goat_losses, :ai_state, :in_x, :in_y, :fire_held,
-              :crates, :crates_left, :crates_caught, :crates_missed, :crate_score
+              :crates, :crates_left, :crates_caught, :crates_missed, :crate_score, :bears, :devils,
+              :herds, :storm, :light_ms, :flares
 
   attr_accessor :ai, :lives
+  # The autopilot option: the demo AI flies real games too (Tab, or Y on a
+  # pad, or the pause menu). It stays set from game to game.
+  attr_reader :autopilot
+  # Whether Laya's decision panel shows while the autopilot is on (L, or
+  # the pause menu); the autopilot flies either way.
+  attr_reader :panel
   # The demo pilot's current goal (:none, :land, :bomb or :home), set from
   # outside (lib/capri/laya_pilot.rb). The AI follows it at each decision
   # point when it is possible, and makes its own pick otherwise.
   attr_accessor :advice
 
   def initialize
-    @start_level = 0
+    @start_level = default_level
     @scores = load_scores
     @high_score = @scores.length > 0 ? @scores[0][0] : 0
     @sounds = []
@@ -82,6 +90,8 @@ class Game
     @ai_descend = false
     @ai_backoff = false
     @advice = :none
+    @autopilot = false
+    @panel = true
     start_demo
   end
 
@@ -115,7 +125,7 @@ class Game
 
   def new_game
     @demo = false
-    @ai = false
+    @ai = @autopilot
     @advice = :none
     @score = 0
     @lives = LIVES_START
@@ -173,12 +183,12 @@ class Game
     while i < ledges.length
       lg = ledges[i]
       @drifts.push({ x: drift_x(i), y: lg[2], lo: lg[0], hi: lg[1], hp: DRIFT_HP, alive: true,
-                     inside: GOATS_PER_DRIFT, spawn_ms: 0.0, flash: 0.0, puff_ms: 0.0 })
+                     inside: GOATS_PER_DRIFT, spawn_ms: 0.0, flash: 0.0, puff_ms: 0.0, vines: lv_info.vines })
       i += 1
     end
     @yetis = []
     i = 0
-    while i < YETI_START + @mission - 1
+    while i < YETI_START + lap - 1
       # Lowest ledges first, toward the open end where a chopper would land.
       lg = ledges[ledges.length - 1 - (i % ledges.length)]
       x = lg[1] - 60.0 - @rng.rand * 160.0
@@ -193,6 +203,22 @@ class Game
     @particles = []
     @popups = []
     @crates = []
+    @bears = []
+    plan_bears if lv_info.drop_bears
+    @devils = []
+    @devil_ms = DEVIL_FIRST_MS
+    @vent_ms = VENT_FIRST_MS
+    @vent_warn = -1.0
+    @vent_x = 0.0
+    @herds = []
+    @herd_ms = HERD_FIRST_MS
+    @storm = 0.0
+    @storm_ms = STORM_FIRST_MS
+    @storm_left = 0.0
+    @rocket_ms = ROCKET_FIRST_MS
+    @light_ms = 0.0
+    @flares = []
+    @trolls_awake = false
     @crates_left = 0
     @crates_caught = 0
     @crates_missed = 0
@@ -200,7 +226,7 @@ class Game
     @saved = 0
     @lost = 0
     @level_ms = 0.0
-    @day = 0.0
+    @day = lv_info.start_day
     @shake_x = 0.0
     @shake_y = 0.0
     @flash_ms = 0.0
@@ -230,6 +256,11 @@ class Game
     @in_x = dx
     @in_y = dy
   end
+
+  # The cannon's rounds on this level (lasers fly straight on the moon).
+  def shot_speed; lv_info.shot_speed; end
+  def shot_drop; lv_info.shot_drop; end
+  def shot_gravity; lv_info.shot_gravity; end
 
   def set_fire(held)
     @fire_held = held
@@ -269,17 +300,43 @@ class Game
     end
   end
 
+  # Laya's panel shown or hidden.
+  def toggle_panel
+    @panel = !@panel
+    show_message(@panel ? "PANEL SHOWN" : "PANEL HIDDEN", 1600.0) unless @demo
+    emit(:menu)
+  end
+
+  # Autopilot on or off. In a game in progress the AI takes the stick (or
+  # hands it back) at once; on the title screen it's the setting for the
+  # next game. The demo is always the AI's.
+  def toggle_autopilot
+    @autopilot = !@autopilot
+    unless @demo
+      @ai = @autopilot
+      @in_x = 0
+      @in_y = 0
+      @fire_held = false
+      @ai_state = :seek unless @autopilot
+    end
+    show_message(@autopilot ? "AUTOPILOT ON" : "AUTOPILOT OFF", 1600.0) unless @demo
+    emit(:menu)
+  end
+
   # On the title screen, left and right step through the levels for the
   # next game's first mission; the demo behind restarts on that level.
   def pick_level(dx)
     return unless @screen == :title && dx != 0
-    k = @start_level + (dx < 0 ? -1 : 1)
-    k = 0 if k < 0
-    k = LEVEL_COUNT - 1 if k > LEVEL_COUNT - 1
-    return if k == @start_level
+    k = (@start_level + (dx < 0 ? -1 : 1)) % LEVEL_COUNT
     @start_level = k
     emit(:menu)
     start_demo
+  end
+
+  # CAPRI_LEVEL / LEVEL=n: start on level n.
+  def set_start_level(n)
+    @start_level = n % LEVEL_COUNT
+    start_demo if @screen == :title
   end
 
   def toggle_pause
@@ -403,6 +460,9 @@ class Game
     update_goats
     update_yetis
     update_snowballs
+    update_bears
+    update_devils
+    update_twists
     update_eagles
     update_ravens
     update_bullets
@@ -444,7 +504,7 @@ class Game
 
   def play_step
     @level_ms += STEP_MS
-    @day = @level_ms / MISSION_DAY_MS
+    @day = lv_info.start_day + @level_ms / MISSION_DAY_MS
     @day = 1.0 if @day > 1.0
     @alarm_ms -= STEP_MS if @alarm_ms > 0.0
     ai_step if @ai
@@ -455,6 +515,9 @@ class Game
     update_goats
     update_yetis
     update_snowballs
+    update_bears
+    update_devils
+    update_twists
     update_eagles
     update_ravens
     update_fx
@@ -487,6 +550,14 @@ class Game
     c.bullet_gap -= STEP_MS if c.bullet_gap > 0.0
     c.bomb_gap -= STEP_MS if c.bomb_gap > 0.0
     c.dust_ms -= STEP_MS if c.dust_ms > 0.0
+    if c.stun_ms > 0.0
+      # Stunned by one of Cupid's arrows: the stick and trigger do nothing.
+      c.stun_ms -= STEP_MS
+      @in_x = 0
+      @in_y = 0
+      @fire_held = false
+      @fire_pressed = false
+    end
 
     if c.landed
       c.vx = 0.0
@@ -505,10 +576,11 @@ class Game
       end
       acc = c.facing == :front ? CHOP_ACCEL * 0.6 : CHOP_ACCEL
       c.vx += @in_x * acc
+      devil_push(c)
       c.vx *= CHOP_DRAG
       c.vx = CHOP_MAX_VX if c.vx > CHOP_MAX_VX
       c.vx = 0.0 - CHOP_MAX_VX if c.vx < 0.0 - CHOP_MAX_VX
-      c.vy += @in_y * CHOP_LIFT
+      c.vy += @in_y * (@in_y < 0 ? lift_at(c.y) : CHOP_LIFT)
       c.vy *= CHOP_VDRAG
       c.vy = CHOP_MAX_VY if c.vy > CHOP_MAX_VY
       c.vy = 0.0 - CHOP_MAX_VY if c.vy < 0.0 - CHOP_MAX_VY
@@ -538,7 +610,7 @@ class Game
       if c.skid_y >= top
         low = ground_low(c.x - CHOP_SKID_HALF, c.x + CHOP_SKID_HALF)
         if low - top > CHOP_LAND_FLAT
-          crash(:cliff)
+          crash(water_y(c.x) < ground_y(c.x) ? :splash : :cliff)
           return
         end
         if (c.vy > CHOP_LAND_VY || c.vx.abs > CHOP_LAND_VX) && @screen != :bonus
@@ -573,7 +645,7 @@ class Game
       elsif c.bullet_gap <= 0.0 && @bullets.length < BULLET_MAX && c.turn_ms <= 0.0
         c.bullet_gap = BULLET_GAP_MS
         d = c.dir
-        @bullets.push({ x: c.x + d * 34.0, y: c.y + 6.0, vx: d * BULLET_SPEED + c.vx * 0.4, vy: BULLET_DROP,
+        @bullets.push({ x: c.x + d * 34.0, y: c.y + 6.0, vx: d * shot_speed + c.vx * 0.4, vy: shot_drop,
                         life: BULLET_LIFE_MS })
         emit(:shoot)
       end
@@ -585,10 +657,14 @@ class Game
     return unless c.alive
     c.alive = false
     @crash_reason = reason
-    g = ground_y(c.x)
+    g = solid_y(c.x)
     c.y = g - CHOP_SKID_OFF if c.skid_y > g
     c.landed = false
     explode(c.x, c.y, 2.2)
+    if water_y(c.x) < ground_y(c.x) && c.skid_y > water_y(c.x) - 30.0
+      splash(c.x, 30)
+      emit(:splash)
+    end
     @shake_x = 14.0
     @shake_y = 10.0
     @flash_ms = 400.0
@@ -621,7 +697,7 @@ class Game
   def update_bullets
     keep = []
     @bullets.each do |b|
-      b[:vy] = b[:vy] + BULLET_GRAVITY
+      b[:vy] = b[:vy] + shot_gravity
       b[:x] = b[:x] + b[:vx]
       b[:y] = b[:y] + b[:vy]
       b[:life] = b[:life] - STEP_MS
@@ -658,6 +734,13 @@ class Game
           emit(:hit)
           snow_puff(b[:x], b[:y], 3)
         end
+        return true
+      end
+    end
+    @bears.each do |br|
+      next unless br[:state] == :tree
+      if (b[:x] - br[:x]).abs < 14.0 && (b[:y] - br[:y]).abs < 14.0
+        scare_bear(br)
         return true
       end
     end
@@ -730,6 +813,7 @@ class Game
       next unless t[:alive]
       if (x - t[:x]).abs < radius + 20.0 && (y - ground_y(t[:x])).abs < radius + 30.0
         if bomb
+          emit(:yeti_charged)
           drive_off_yeti(t)
         else
           t[:hp] = t[:hp] - 1
@@ -758,11 +842,21 @@ class Game
     return if amount <= 0
     k[:hp] = k[:hp] - amount
     k[:flash] = 150.0
+    if k[:hp] <= 0 && k[:vines]
+      # Only the vines come away; the ruin is still sealed.
+      k[:vines] = false
+      k[:hp] = DRIFT_HP
+      debris(k[:x], k[:y] - DRIFT_H / 2.0, 18, lv_info.burst_bits)
+      snow_burst(k[:x], k[:y] - DRIFT_H / 2.0, 12)
+      popup(k[:x], k[:y] - DRIFT_H - 30.0, "VINES CUT", [0.7, 1.0, 0.5], false)
+      emit(:vines)
+      return
+    end
     if k[:hp] <= 0
       k[:alive] = false
       k[:spawn_ms] = 600.0
       snow_burst(k[:x], k[:y] - DRIFT_H / 2.0, 30)
-      debris(k[:x], k[:y] - DRIFT_H / 2.0, 14, cascadia? ? [0.55, 0.36, 0.22] : [0.92, 0.95, 1.0])
+      debris(k[:x], k[:y] - DRIFT_H / 2.0, 14, lv_info.drift_bits)
       @shake_x = 9.0
       @shake_y = 7.0
       add_score(SCORE_DRIFT)
@@ -884,7 +978,7 @@ class Game
           emit(:saved)
           if @saved % CHOP_CAPACITY == 0 && @saved > 0
             add_score(SCORE_FULL_LOAD)
-            popup(BASE_DOOR_X - 60.0, GROUND_Y - 130.0, "16 GOATS HOME +#{SCORE_FULL_LOAD}", [0.5, 1.0, 0.6], true)
+            popup(BASE_DOOR_X - 60.0, GROUND_Y - 130.0, "16 #{lv_info.animals} HOME +#{SCORE_FULL_LOAD}", [0.5, 1.0, 0.6], true)
             emit(:fanfare)
           else
             popup(BASE_DOOR_X - 20.0, GROUND_Y - 70.0, "+#{SCORE_SAVED}", [0.5, 1.0, 0.6], false)
@@ -913,9 +1007,9 @@ class Game
   def update_yetis
     c = @chopper
     @yeti_spawn_ms -= STEP_MS
-    max_yetis = YETI_MAX_BASE + @mission - 1
+    max_yetis = YETI_MAX_BASE + lap - 1
     if @yeti_spawn_ms <= 0.0
-      @yeti_spawn_ms = YETI_SPAWN_MS * (@mission > 3 ? 0.6 : 1.0)
+      @yeti_spawn_ms = YETI_SPAWN_MS * (lap > 3 ? 0.6 : 1.0)
       if @yetis.length < max_yetis
         # Out of the summit mist, or down out of the foothill pines.
         far = c.x > WORLD_L + WINDOW_W + 400.0
@@ -923,9 +1017,21 @@ class Game
         @yetis.push(new_yeti(x, far ? 1 : -1))
       end
     end
+    stone = trolls_stone?
+    if lv_info.trolls && !stone && !@trolls_awake && @screen != :title
+      @trolls_awake = true
+      show_message("THE TROLLS ARE AWAKE", 2500.0)
+      emit(:troll_wake)
+    end
     @yetis.each do |t|
       next unless t[:alive]
       t[:flash] = t[:flash] - STEP_MS if t[:flash] > 0.0
+      if stone
+        # Turned to stone where the daylight caught it: no moving, no throwing.
+        t[:windup] = 0.0
+        t[:arm] = 1.2
+        next
+      end
       t[:throw_ms] = t[:throw_ms] - STEP_MS if t[:throw_ms] > 0.0
       t[:fire_ms] = t[:fire_ms] - STEP_MS
       t[:wobble] = t[:wobble] + 0.12
@@ -954,12 +1060,12 @@ class Game
       # reach, it scoops a snowball and holds it up overhead (0..1; it waits
       # there, ball up, until the chopper comes in range). Only for show.
       t[:windup] = 0.0
-      if c.alive && dx.abs < YETI_RANGE + 160.0 && t[:fire_ms] < YETI_WINDUP_MS
+      if c.alive && dx.abs < YETI_RANGE + 160.0 && t[:fire_ms] < YETI_WINDUP_MS && !chopper_home?
         w = 1.0 - t[:fire_ms] / YETI_WINDUP_MS
         t[:windup] = w > 1.0 ? 1.0 : w
       end
-      if c.alive && near && dx.abs < YETI_RANGE && t[:fire_ms] <= 0.0 && @screen != :dead
-        t[:fire_ms] = YETI_FIRE_MS * (@mission > 2 ? 0.75 : 1.0) + @rng.rand * 600.0
+      if c.alive && near && dx.abs < YETI_RANGE && t[:fire_ms] <= 0.0 && @screen != :dead && !chopper_home?
+        t[:fire_ms] = YETI_FIRE_MS * (lap > 2 ? 0.75 : 1.0) * (lv_info.trolls ? TROLL_NIGHT_FIRE : 1.0) + @rng.rand * 600.0
         t[:throw_ms] = YETI_THROW_MS
         t[:windup] = 0.0
         # Let go from the hand, just past straight up overhead.
@@ -971,7 +1077,7 @@ class Game
         slope = yeti_lob(tx - sx, ty - sy)
         side = tx > sx ? 1.0 : -1.0
         k = SNOWBALL_SPEED / Math.sqrt(1.0 + slope * slope)
-        @snowballs.push({ x: sx, y: sy, vx: side * k, vy: slope * k })
+        @snowballs.push({ x: sx, y: sy, vx: side * k, vy: slope * k, kind: 0 })
         emit(:yeti_fire)
       end
     end
@@ -998,7 +1104,7 @@ class Game
     t[:alive] = false
     g = ground_y(t[:x])
     snow_burst(t[:x], g - 24.0, 24)
-    debris(t[:x], g - 24.0, 8, cascadia? ? [0.36, 0.24, 0.15] : [0.92, 0.94, 1.0])
+    debris(t[:x], g - 24.0, 8, lv_info.villain_bits)
     add_score(SCORE_YETI)
     popup(t[:x], g - 70.0, "#{SCORE_YETI}", [1.0, 0.9, 0.5], false)
     emit(:yeti_off)
@@ -1013,14 +1119,46 @@ class Game
       s[:y] = s[:y] + s[:vy]
       alive = true
       g = ground_y(s[:x])
-      if s[:y] >= g - 4.0
-        blast(s[:x], g - 6.0, SNOWBALL_BLAST, false)
+      kind = s[:kind]
+      if kind == 2 && @rng.rand < 0.5
+        # A lava bomb's smoke trail.
+        @particles.push({ x: s[:x], y: s[:y], vx: 0.0, vy: -0.3, life: 500.0, max: 500.0, size: 7.0,
+                          r: 0.30, g: 0.26, b: 0.24, kind: :smoke, spin: 0.0 })
+      elsif kind == 3
+        @particles.push({ x: s[:x], y: s[:y] + 10.0, vx: (@rng.rand - 0.5) * 0.6, vy: 0.6, life: 260.0, max: 260.0,
+                          size: 4.0, r: 1.0, g: 0.8, b: 0.4, kind: :glow, spin: 0.0 })
+      end
+      if kind == 1 && s[:y] >= g - 10.0
+        bear_landed(s)
         alive = false
-      elsif s[:y] < 0.0 || s[:x] < WORLD_L || s[:x] > WORLD_R
+      elsif kind == 3 && s[:vy] >= 0.0
+        # A rocket at the top of its climb bursts.
+        firework_burst(s[:x], s[:y])
+        alive = false
+      elsif s[:y] >= g - 4.0
+        if kind == 0 && lv_info.stun
+          # An arrow sticks in the ground, harmless.
+          snow_burst(s[:x], g - 6.0, 4)
+          emit(:splat)
+        elsif kind == 2
+          # A lava bomb lands in a spatter of sparks; the animals scurry
+          # clear of it.
+          snow_burst(s[:x], g - 6.0, 8)
+          burst(s[:x], g - 8.0, 14, [1.0, 0.55, 0.15], 3.0, 600.0, 6.0)
+          emit(:splat)
+        else
+          blast(s[:x], g - 6.0, SNOWBALL_BLAST, false)
+        end
+        alive = false
+      elsif s[:y] < -400.0 || s[:x] < WORLD_L || s[:x] > WORLD_R
         alive = false
       elsif c.alive && (s[:x] - c.x).abs < CHOP_HALF_W && (s[:y] - c.y).abs < CHOP_HALF_H + 6.0
-        snow_burst(s[:x], s[:y], 12)
-        crash(:snowball)
+        if kind == 0 && lv_info.stun
+          stun_chopper
+        else
+          snow_burst(s[:x], s[:y], 12)
+          crash(kind == 1 ? :drop_bear : (kind == 2 ? :lava : (kind == 3 ? :rocket : :snowball)))
+        end
         alive = false
       end
       keep.push(s) if alive
@@ -1028,13 +1166,388 @@ class Game
     @snowballs = keep
   end
 
+  # ---- Level twists ----
+
+  # Fjord trolls are stone while the day is young.
+  def trolls_stone?
+    lv_info.trolls && @day < TROLL_WAKE_DAY
+  end
+
+  # Spray thrown up off open water.
+  def splash(x, count)
+    w = water_y(x)
+    col = lv_info.water_top
+    i = 0
+    while i < count
+      a = -0.4 - @rng.rand * 2.3
+      v = 1.5 + @rng.rand * 3.0
+      @particles.push({ x: x + (@rng.rand - 0.5) * 30.0, y: w - 2.0, vx: Math.cos(a) * v, vy: Math.sin(a) * v,
+                        life: 600.0 + @rng.rand * 400.0, max: 1000.0, size: 4.0 + @rng.rand * 4.0,
+                        r: col[0] + 0.4, g: col[1] + 0.4, b: col[2] + 0.4, kind: :debris, spin: 0.0 })
+      i += 1
+    end
+  end
+
+  # Gum trees on the outback's mesas, each with a drop bear up it: on every
+  # ledge, out past the burrow and toward the open end.
+  def plan_bears
+    i = 0
+    while i < ledges.length
+      lg = ledges[i]
+      [lg[0] + BEAR_TREE_OFF, lg[1] - 40.0].each do |x|
+        g = ground_y(x)
+        @bears.push({ x: x, tree_x: x, y: g - BEAR_PERCH, perch: g - BEAR_PERCH, state: :tree, ms: 0.0,
+                      look: @rng.rand * TWO_PI, tries: 0.0 })
+      end
+      i += 1
+    end
+  end
+
+  # A drop bear lets go onto a chopper that comes in low beneath its
+  # branch; one it missed waddles back and climbs up again. Shot out of
+  # the tree, it scampers off for good (for the rest of the mission).
+  def update_bears
+    return if @bears.length == 0
+    c = @chopper
+    @bears.each do |br|
+      br[:look] = br[:look] + 0.03
+      st = br[:state]
+      if st == :tree
+        if c.alive && @screen != :dead && (c.x - br[:x]).abs < BEAR_REACH && c.y - CHOP_HALF_H > br[:y] + 16.0 &&
+           c.y < br[:y] + 150.0
+          br[:state] = :falling
+          dir = c.x > br[:x] ? 1.0 : -1.0
+          @snowballs.push({ x: br[:x], y: br[:y], vx: dir * 0.5, vy: 0.0, kind: 1 })
+          emit(:bear_drop)
+        end
+      elsif st == :ground
+        br[:ms] = br[:ms] - STEP_MS
+        dx = br[:tree_x] - br[:x]
+        if dx.abs > 2.0
+          br[:x] = br[:x] + (dx > 0.0 ? 0.5 : -0.5)
+          br[:y] = ground_y(br[:x]) - 8.0
+        elsif br[:ms] <= 0.0
+          # Up the trunk again.
+          br[:x] = br[:tree_x]
+          br[:y] = br[:y] - 0.6
+          if br[:y] <= br[:perch]
+            br[:y] = br[:perch]
+            br[:state] = :tree
+          end
+        end
+      end
+    end
+  end
+
+  # The falling bear (a snowball of kind 1) hit the ground: it's fine.
+  def bear_landed(s)
+    bi = -1
+    i = 0
+    while i < @bears.length
+      br = @bears[i]
+      bi = i if br[:state] == :falling && (bi < 0 || (br[:tree_x] - s[:x]).abs < (@bears[bi][:tree_x] - s[:x]).abs)
+      i += 1
+    end
+    return if bi < 0
+    best = @bears[bi]
+    best[:state] = :ground
+    best[:x] = s[:x]
+    best[:y] = ground_y(s[:x]) - 8.0
+    best[:ms] = BEAR_CLIMB_MS
+    dust(s[:x], 6)
+  end
+
+  def scare_bear(br)
+    br[:tries] = 0.0
+    br[:state] = :gone
+    feathers(br[:x], br[:y], 8, [0.62, 0.62, 0.64])
+    add_score(SCORE_BEAR)
+    popup(br[:x], br[:y] - 20.0, "#{SCORE_BEAR}", [1.0, 0.9, 0.5], false)
+    emit(:squawk)
+    emit(:bear_shot)
+  end
+
+  # Desert dust devils: whirl up out on the slopes now and then, wander
+  # across toward the chopper and die away; flying through one shoves the
+  # chopper sideways and lifts it.
+  def update_devils
+    return unless lv_info.dust_devils
+    c = @chopper
+    @devil_ms -= STEP_MS
+    if @devil_ms <= 0.0 && @devils.length < DEVIL_MAX && c.alive && @screen == :play
+      @devil_ms = DEVIL_GAP_MS + @rng.rand * 6000.0
+      side = @rng.rand < 0.5 ? -1.0 : 1.0
+      x = c.x + side * (WINDOW_W * 0.45 + @rng.rand * 200.0)
+      x = FENCE_X - 60.0 if x > FENCE_X - 60.0
+      x = WORLD_L + 100.0 if x < WORLD_L + 100.0
+      @devils.push({ x: x, dir: 0.0 - side, ms: DEVIL_LIFE_MS, phase: @rng.rand * TWO_PI, grow: 0.0 })
+      emit(:devil)
+    end
+    keep = []
+    @devils.each do |d|
+      d[:ms] = d[:ms] - STEP_MS
+      d[:phase] = d[:phase] + 0.25
+      d[:x] = d[:x] + d[:dir] * DEVIL_SPEED + Math.sin(d[:phase] * 0.13) * 0.6
+      # Whirling up at the start, dying away at the end.
+      g = d[:ms] > DEVIL_LIFE_MS - 1500.0 ? (DEVIL_LIFE_MS - d[:ms]) / 1500.0 : d[:ms] / 2000.0
+      d[:grow] = g > 1.0 ? 1.0 : g
+      if @rng.rand < 0.3
+        x = d[:x] + (@rng.rand - 0.5) * 30.0
+        col = lv_info.burst
+        @particles.push({ x: x, y: ground_y(x) - 4.0 - @rng.rand * 30.0, vx: (@rng.rand - 0.5) * 2.0, vy: -0.6 - @rng.rand,
+                          life: 500.0, max: 500.0, size: 6.0 + @rng.rand * 6.0, r: col[0], g: col[1], b: col[2],
+                          kind: :smoke, spin: 0.0 })
+      end
+      keep.push(d) if d[:ms] > 0.0 && d[:x] < FENCE_X && d[:x] > WORLD_L
+    end
+    @devils = keep
+  end
+
+  # ---- More twists: lava vents, stampedes, dust storms, fireworks ----
+
+  # Whether a twist may start something now: in play or the title demo,
+  # with the chopper out on the wild side.
+  def twist_live?
+    @chopper.alive && (@screen == :play || @screen == :title) && !chopper_home?
+  end
+
+  def update_twists
+    update_vents if lv_info.volcano
+    update_herds if lv_info.stampede
+    update_storm if lv_info.dust_storm
+    update_fireworks if lv_info.fireworks
+  end
+
+  # The climb rate a push on the stick gives at height y (thin air near the
+  # top of the Himalaya).
+  def lift_at(y)
+    return CHOP_LIFT unless lv_info.thin_air
+    return CHOP_LIFT if y >= THIN_AIR_Y
+    k = (THIN_AIR_Y - y) / (THIN_AIR_Y - CEILING_Y)
+    k = 1.0 if k > 1.0
+    CHOP_LIFT * (1.0 - (1.0 - THIN_AIR_LIFT) * k)
+  end
+
+  # The volcano: now and then the ground shakes and then the vent nearest
+  # the chopper throws lava bombs in high arcs. Every vent smokes.
+  def update_vents
+    VOLCANO_VENTS.each do |v|
+      if (v - @cam_x - WINDOW_W / 2.0).abs < WINDOW_W && @rng.rand < 0.05
+        g = ground_y(v)
+        @particles.push({ x: v + (@rng.rand - 0.5) * 16.0, y: g - 6.0, vx: (@rng.rand - 0.5) * 0.4, vy: -0.5 - @rng.rand * 0.5,
+                          life: 1400.0, max: 1400.0, size: 10.0 + @rng.rand * 6.0, r: 0.42, g: 0.40, b: 0.40,
+                          kind: :smoke, spin: 0.0 })
+      end
+    end
+    if @vent_warn >= 0.0
+      @vent_warn -= STEP_MS
+      if (@vent_x - @chopper.x).abs < WINDOW_W
+        @shake_x = (@rng.rand - 0.5) * 5.0
+        @shake_y = (@rng.rand - 0.5) * 3.0
+      end
+      erupt(@vent_x) if @vent_warn < 0.0
+      return
+    end
+    @vent_ms -= STEP_MS
+    return if @vent_ms > 0.0
+    gap = VENT_GAP_MS - (lap - 1) * 1500.0
+    gap = VENT_GAP_MIN_MS if gap < VENT_GAP_MIN_MS
+    @vent_ms = gap * (0.8 + @rng.rand * 0.4)
+    return unless twist_live?
+    best = -1.0e9
+    VOLCANO_VENTS.each { |v| best = v if (v - @chopper.x).abs < (best - @chopper.x).abs }
+    return if (best - @chopper.x).abs > VENT_REACH
+    @vent_x = best
+    @vent_warn = VENT_WARN_MS
+    emit(:tremor)
+  end
+
+  def erupt(x)
+    g = ground_y(x)
+    n = LAVA_BOMBS + lap - 1
+    n = 4 if n > 4
+    i = 0
+    while i < n
+      @snowballs.push({ x: x + (@rng.rand - 0.5) * 20.0, y: g - 14.0, vx: (@rng.rand - 0.5) * 3.2,
+                        vy: -4.4 - @rng.rand * 1.6, kind: 2 })
+      i += 1
+    end
+    burst(x, g - 10.0, 18, [1.0, 0.5, 0.1], 3.0, 700.0, 7.0)
+    i = 0
+    while i < 10
+      @particles.push({ x: x + (@rng.rand - 0.5) * 30.0, y: g - 8.0, vx: (@rng.rand - 0.5) * 1.2, vy: -1.0 - @rng.rand * 1.4,
+                        life: 1600.0, max: 1600.0, size: 14.0 + @rng.rand * 10.0, r: 0.28, g: 0.25, b: 0.24,
+                        kind: :smoke, spin: 0.0 })
+      i += 1
+    end
+    @shake_x = 6.0
+    @shake_y = 5.0
+    emit(:lava)
+  end
+
+  # The savanna: a herd thunders along the ground from behind the chopper
+  # toward the fence, where it wheels away; a chopper on or close over the
+  # ground in its path is run down.
+  def update_herds
+    c = @chopper
+    @herd_ms -= STEP_MS
+    if @herd_ms <= 0.0
+      gap = HERD_GAP_MS - (lap - 1) * 4000.0
+      gap = HERD_GAP_MIN_MS if gap < HERD_GAP_MIN_MS
+      @herd_ms = gap * (0.8 + @rng.rand * 0.4)
+      x = c.x - HERD_START_OFF
+      x = WORLD_L + 40.0 if x < WORLD_L + 40.0
+      if twist_live? && x < HERD_STOP_X - 400.0
+        @herds.push({ x: x, phase: 0.0, out: 0.0 })
+        emit(:stampede)
+        show_message("STAMPEDE!", 2000.0)
+      end
+    end
+    keep = []
+    @herds.each do |h|
+      h[:phase] = h[:phase] + 0.3
+      h[:x] = h[:x] + HERD_SPEED
+      h[:out] = h[:out] + STEP_MS if h[:x] > HERD_STOP_X
+      if @rng.rand < 0.6
+        x = h[:x] - HERD_HALF_W * (0.2 + @rng.rand)
+        col = lv_info.burst
+        @particles.push({ x: x, y: ground_y(x) - 6.0 - @rng.rand * 20.0, vx: -0.8 - @rng.rand, vy: -0.4 - @rng.rand * 0.6,
+                          life: 800.0, max: 800.0, size: 10.0 + @rng.rand * 8.0, r: col[0], g: col[1], b: col[2],
+                          kind: :smoke, spin: 0.0 })
+      end
+      if (h[:x] - c.x).abs < WINDOW_W * 0.6 && h[:out] <= 0.0
+        @shake_y = (@rng.rand - 0.5) * 2.4
+      end
+      if h[:out] <= 0.0 && c.alive && (c.x - h[:x]).abs < HERD_HALF_W + CHOP_HALF_W * 0.5 &&
+         c.skid_y > ground_y(c.x) - HERD_TALL
+        crash(:stampede)
+      end
+      keep.push(h) if h[:out] < HERD_FADE_MS
+    end
+    @herds = keep
+  end
+
+  # Mars: a dust storm blows up now and then and hides everything but the
+  # ship; @storm is how thick it is (0 to 1).
+  def update_storm
+    if @storm_left > 0.0
+      @storm_left -= STEP_MS
+      len = STORM_LEN_MS + (lap - 1) * 2000.0
+      k = (len - @storm_left) / STORM_RAMP_MS
+      k2 = @storm_left / STORM_RAMP_MS
+      k = k2 if k2 < k
+      k = 1.0 if k > 1.0
+      k = 0.0 if k < 0.0
+      @storm = k
+      if @storm_left <= 0.0
+        @storm = 0.0
+        @storm_ms = STORM_GAP_MS * (0.8 + @rng.rand * 0.4)
+      end
+      return
+    end
+    @storm_ms -= STEP_MS
+    if @storm_ms <= 0.0
+      if twist_live?
+        @storm_left = STORM_LEN_MS + (lap - 1) * 2000.0
+        emit(:storm)
+        show_message("DUST STORM!", 2000.0)
+      else
+        @storm_ms = 3000.0
+      end
+    end
+  end
+
+  # The Fourth of July: rockets go up off the slopes ahead of the chopper
+  # and burst high up, lighting the night.
+  def update_fireworks
+    @light_ms -= STEP_MS if @light_ms > 0.0
+    keep = []
+    @flares.each do |f|
+      f[:ms] = f[:ms] - STEP_MS
+      keep.push(f) if f[:ms] > 0.0
+    end
+    @flares = keep
+    @rocket_ms -= STEP_MS
+    return if @rocket_ms > 0.0
+    gap = ROCKET_GAP_MS - (lap - 1) * 500.0
+    gap = 1600.0 if gap < 1600.0
+    @rocket_ms = gap * (0.5 + @rng.rand)
+    return unless twist_live?
+    c = @chopper
+    d = c.vx < -0.5 ? -1.0 : (c.vx > 0.5 ? 1.0 : (@rng.rand < 0.5 ? -1.0 : 1.0))
+    x = c.x + d * (220.0 + @rng.rand * 480.0)
+    x = FENCE_X - 80.0 if x > FENCE_X - 80.0
+    x = WORLD_L + 60.0 if x < WORLD_L + 60.0
+    g = ground_y(x)
+    @snowballs.push({ x: x, y: g - 12.0, vx: (@rng.rand - 0.5) * 0.6, vy: 0.0 - ROCKET_VY - @rng.rand * 1.2, kind: 3 })
+    emit(:firework)
+  end
+
+  FLARE_COLORS = [[1.0, 0.30, 0.30], [0.40, 0.62, 1.0], [1.0, 1.0, 1.0], [1.0, 0.85, 0.30], [0.50, 1.0, 0.50],
+                  [1.0, 0.45, 0.90]]
+
+  def firework_burst(x, y)
+    col = FLARE_COLORS[@rng.rand(FLARE_COLORS.length)]
+    @flares.push({ x: x, y: y, ms: 1100.0, r: col[0], g: col[1], b: col[2] })
+    burst(x, y, 36, col, 4.0, 1200.0, 5.0)
+    @light_ms = LIGHT_MS
+    emit(:pop)
+  end
+
+  # Cupid's arrow: hearts, and no control for a moment.
+  def stun_chopper
+    c = @chopper
+    c.stun_ms = STUN_MS
+    burst(c.x, c.y - 10.0, 16, [1.0, 0.45, 0.65], 2.6, 900.0, 6.0)
+    popup(c.x, c.y - 44.0, "STUNNED", [1.0, 0.55, 0.75], false)
+    emit(:stun)
+  end
+
+  # ---- The AI and the twists ----
+
+  # A herd running at (or over) x: one behind it, not yet past, that will
+  # get there before it stops at the fence.
+  def ai_herd_threat?(x)
+    @herds.each do |h|
+      next if h[:out] > 0.0
+      return true if x > h[:x] - HERD_HALF_W - 80.0 && x < h[:x] + AI_HERD_LOOK && x < HERD_STOP_X + HERD_HALF_W + 60.0
+    end
+    false
+  end
+
+  def devil_push(c)
+    @devils.each do |d|
+      next if (c.x - d[:x]).abs > DEVIL_HALF_W
+      g = ground_y(d[:x])
+      next if c.y < g - DEVIL_H * d[:grow]
+      k = d[:grow] * (1.0 - (c.x - d[:x]).abs / DEVIL_HALF_W)
+      c.vx += Math.sin(d[:phase]) * DEVIL_SHOVE * k + d[:dir] * DEVIL_SHOVE * 0.3 * k
+      c.vy -= DEVIL_LIFT * k
+    end
+  end
+
   # ---- Eagles and ravens ----
+
+  # Over the home side of the border fence the chopper is off limits:
+  # birds and drones break off and head back over the mountain, none set
+  # out after it, and the villains hold their throws.
+  def chopper_home?
+    @chopper.x > FENCE_X
+  end
+
+  # A bird or drone breaking off: back toward the mountain and up, out of
+  # harm's way (a leaving one can't hit the chopper).
+  def leave(j)
+    j[:leaving] = true
+    j[:dir] = -1.0
+  end
 
   def update_eagles
     c = @chopper
     @eagle_ms -= STEP_MS
+    @eagle_ms = EAGLE_HOME_GRACE_MS if chopper_home? && @eagle_ms < EAGLE_HOME_GRACE_MS
     if @eagle_ms <= 0.0 && c.alive && @screen != :dead
-      gap = EAGLE_GAP_MS - (@mission - 1) * 2500.0
+      gap = EAGLE_GAP_MS - (lap - 1) * 2500.0
       gap = EAGLE_GAP_MIN_MS if gap < EAGLE_GAP_MIN_MS
       @eagle_ms = gap + @rng.rand * 3000.0
       from_left = @rng.rand < 0.5
@@ -1045,19 +1558,21 @@ class Game
       y = CEILING_Y + 10.0 if y < CEILING_Y + 10.0
       floor = ground_y(c.x) - 70.0
       y = floor if y > floor
-      @eagles.push({ x: x, y: y, vy: 0.0, dir: from_left ? 1.0 : -1.0, dive: false, aim_y: 0.0, flap: @rng.rand * TWO_PI })
+      @eagles.push({ x: x, y: y, vy: 0.0, dir: from_left ? 1.0 : -1.0, dive: false, aim_y: 0.0, flap: @rng.rand * TWO_PI,
+                     leaving: false })
       @alarm_ms = 1500.0
       emit(:eagle)
     end
     keep = []
     @eagles.each do |j|
+      leave(j) if chopper_home? && !j[:leaving]
       j[:x] = j[:x] + j[:dir] * EAGLE_SPEED
       j[:flap] = j[:flap] + (j[:dive] ? 0.12 : 0.3)
       alive = true
       ahead = (c.x - j[:x]) * j[:dir]
       # Once it spots a chopper well off the ground ahead, it stoops at the
       # height the chopper was heading for -- one committed dive, so dodge it.
-      if c.alive && !j[:dive] && c.skid_y < ground_y(c.x) - 40.0
+      if c.alive && !j[:dive] && !j[:leaving] && c.skid_y < ground_y(c.x) - 40.0
         if ahead > 160.0 && ahead < 560.0 && (c.y - j[:y]).abs < 140.0
           j[:dive] = true
           j[:aim_y] = c.y + c.vy * 20.0
@@ -1065,7 +1580,9 @@ class Game
         end
       end
       want = 0.0
-      if j[:dive]
+      if j[:leaving]
+        want = -1.6
+      elsif j[:dive]
         if c.alive && ahead > 0.0
           want = (j[:aim_y] - j[:y]) * 0.05
           want = EAGLE_DIVE if want > EAGLE_DIVE
@@ -1079,7 +1596,7 @@ class Game
       j[:y] = CEILING_Y - 20.0 if j[:y] < CEILING_Y - 20.0
       g = ground_y(j[:x]) - 30.0
       j[:y] = g if j[:y] > g
-      if c.alive && (j[:x] - c.x).abs < CHOP_HALF_W + 8.0 && (j[:y] - c.y).abs < CHOP_HALF_H
+      if c.alive && !j[:leaving] && (j[:x] - c.x).abs < CHOP_HALF_W + 8.0 && (j[:y] - c.y).abs < CHOP_HALF_H
         feathers(j[:x], j[:y], 14, bird_color)
         crash(:eagle)
         alive = false
@@ -1100,15 +1617,16 @@ class Game
 
   def update_ravens
     c = @chopper
-    if @mission >= RAVEN_FROM_MISSION
+    if lap >= RAVEN_FROM_LAP
       @raven_ms -= STEP_MS
+      @raven_ms = EAGLE_HOME_GRACE_MS if chopper_home? && @raven_ms < EAGLE_HOME_GRACE_MS
       if @raven_ms <= 0.0 && c.alive && @screen != :dead && @ravens.length < 2
-        @raven_ms = RAVEN_GAP_MS - (@mission - RAVEN_FROM_MISSION) * 3000.0
+        @raven_ms = RAVEN_GAP_MS - (lap - RAVEN_FROM_LAP) * 3000.0
         @raven_ms = 9000.0 if @raven_ms < 9000.0
         from_left = c.x > WORLD_L + WINDOW_W
         x = from_left ? @cam_x - 60.0 : @cam_x + WINDOW_W + 60.0
         @ravens.push({ x: x, y: CEILING_Y + 40.0 + @rng.rand * 120.0, phase: @rng.rand * TWO_PI, flap: 0.0,
-                       dir: from_left ? 1.0 : -1.0 })
+                       dir: from_left ? 1.0 : -1.0, leaving: false })
         @alarm_ms = 1500.0
         emit(:raven)
       end
@@ -1117,7 +1635,12 @@ class Game
     @ravens.each do |d|
       d[:phase] = d[:phase] + 0.06
       d[:flap] = d[:flap] + 0.35
-      if c.alive
+      leave(d) if chopper_home? && !d[:leaving]
+      if d[:leaving]
+        d[:x] = d[:x] - RAVEN_SPEED * 1.5
+        d[:y] = d[:y] - RAVEN_SPEED * 0.5 + Math.sin(d[:phase]) * 1.2
+        d[:y] = CEILING_Y - 20.0 if d[:y] < CEILING_Y - 20.0
+      elsif c.alive
         dx = c.x - d[:x]
         dy = c.y - d[:y]
         len = Math.sqrt(dx * dx + dy * dy)
@@ -1129,11 +1652,12 @@ class Game
       g = ground_y(d[:x]) - 30.0
       d[:y] = g if d[:y] > g
       alive = true
-      if c.alive && (d[:x] - c.x).abs < CHOP_HALF_W && (d[:y] - c.y).abs < CHOP_HALF_H + 8.0
+      if c.alive && !d[:leaving] && (d[:x] - c.x).abs < CHOP_HALF_W && (d[:y] - c.y).abs < CHOP_HALF_H + 8.0
         feathers(d[:x], d[:y], 12, [0.12, 0.12, 0.16])
         crash(:raven)
         alive = false
       end
+      alive = false if d[:leaving] && d[:x] < @cam_x - 200.0
       keep.push(d) if alive
     end
     @ravens = keep
@@ -1150,6 +1674,15 @@ class Game
   end
 
   # ---- Scoring and mission flow ----
+
+  # How hard the game is: 1 until every level in the rotation has been
+  # flown once, then one more for each full lap of them. (A start level
+  # picked out of season is flown once, before the rotation proper.)
+  def lap
+    m = @mission - 1 - (IN_SEASON[@start_level] ? 0 : 1)
+    m = 0 if m < 0
+    1 + m / LEVELS_IN_SEASON
+  end
 
   def add_score(pts)
     @score += pts
@@ -1246,19 +1779,15 @@ class Game
     end
     @crate_done_ms += STEP_MS
     if @crate_done_ms >= CRATE_OUTRO_MS
+      was = lap
       @mission += 1
       load_mission
       @screen = :intro
       @screen_ms = 0.0
       emit(:start)
+      # Every level flown: the next lap is tougher.
+      show_message("EVERY LEVEL FLOWN -- LAP #{lap}: TOUGHER FROM HERE", 4000.0) if lap > was
     end
-  end
-
-  # Splinters of the level's crate: pine boards, or the orange case.
-  def crate_color
-    return [0.93, 0.44, 0.12] if arctic?
-    return [0.78, 0.62, 0.40] if cascadia?
-    [0.62, 0.44, 0.24]
   end
 
   # True once the last crate is down and the tally is showing.
@@ -1267,14 +1796,14 @@ class Game
   end
 
   def crate_fall_speed
-    v = CRATE_FALL + (@mission - 1) * 0.08
+    v = CRATE_FALL + (lap - 1) * 0.08
     v > 1.9 ? 1.9 : v
   end
 
   def update_crates
     @crate_ms -= STEP_MS
     if @crates_left > 0 && @crate_ms <= 0.0
-      gap = CRATE_GAP_MS - (@mission - 1) * 60.0
+      gap = CRATE_GAP_MS - (lap - 1) * 60.0
       gap = 650.0 if gap < 650.0
       @crate_ms = gap
       x = CRATE_FIELD_L + @rng.rand * (CRATE_FIELD_R - CRATE_FIELD_L)
@@ -1300,9 +1829,9 @@ class Game
         emit(:saved)
       elsif k[:y] + half >= GROUND_Y
         @crates_missed += 1
-        debris(k[:x], GROUND_Y - 10.0, 10, crate_color)
-        # Huckleberries scattered across the forest floor.
-        debris(k[:x], GROUND_Y - 8.0, 8, [0.30, 0.24, 0.55]) if cascadia?
+        debris(k[:x], GROUND_Y - 10.0, 10, lv_info.crate_bits)
+        # What was in it, spilled across the ground (huckleberries, gifts...).
+        debris(k[:x], GROUND_Y - 8.0, 8, lv_info.crate_spill) if lv_info.spill?
         snow_burst(k[:x], GROUND_Y - 6.0, 8)
         popup(k[:x], GROUND_Y - 50.0, "SMASHED", [1.0, 0.5, 0.4], false)
         @shake_y = 3.0
@@ -1391,10 +1920,10 @@ class Game
     end
   end
 
-  # Powder thrown up in a cloud: soft white puffs plus a few falling clumps;
-  # in Cascadia's forest, earth and needles instead.
+  # Powder thrown up in a cloud: soft puffs plus a few falling clumps, in
+  # the level's colors (snow, forest earth, red dirt, sand...).
   def snow_burst(x, y, count)
-    col = cascadia? ? [0.58, 0.50, 0.38] : [0.95, 0.97, 1.0]
+    col = lv_info.burst
     i = 0
     while i < count
       a = @rng.rand * TWO_PI
@@ -1403,14 +1932,12 @@ class Game
                         max: 1200.0, size: 7.0 + @rng.rand * 7.0, r: col[0], g: col[1], b: col[2], kind: :smoke, spin: 0.0 })
       i += 1
     end
-    debris(x, y, count / 3, cascadia? ? [0.40, 0.30, 0.18] : col)
+    debris(x, y, count / 3, lv_info.burst_bits)
   end
 
-  # Feathers of the level's big bird: golden eagle, gull or owl.
+  # Feathers of the level's big bird.
   def bird_color
-    return [0.88, 0.90, 0.94] if arctic?
-    return [0.58, 0.46, 0.34] if cascadia?
-    [0.45, 0.32, 0.18]
+    lv_info.feather
   end
 
   def feathers(x, y, count, col)
@@ -1446,16 +1973,17 @@ class Game
     end
   end
 
-  # Rotor wash: powder on the mountain, dust in the valley and the forest.
+  # Rotor wash in the level's colors, one for the mountain side and one
+  # for the valley; spray off open water.
   def dust(x, count)
-    snowy = x < FENCE_X && !cascadia?
+    col = x < FENCE_X ? lv_info.wash_hill : lv_info.wash_valley
     i = 0
     while i < count
       side = @rng.rand < 0.5 ? -1.0 : 1.0
       px = x + side * (10.0 + @rng.rand * 20.0)
-      @particles.push({ x: px, y: ground_y(px) - 4.0, vx: side * (1.0 + @rng.rand * 2.5),
+      @particles.push({ x: px, y: solid_y(px) - 4.0, vx: side * (1.0 + @rng.rand * 2.5),
                         vy: -0.3 - @rng.rand * 0.6, life: 500.0 + @rng.rand * 300.0, max: 800.0, size: 8.0 + @rng.rand * 6.0,
-                        r: snowy ? 0.94 : 0.75, g: snowy ? 0.96 : 0.65, b: snowy ? 1.0 : 0.45, kind: :smoke, spin: 0.0 })
+                        r: col[0], g: col[1], b: col[2], kind: :smoke, spin: 0.0 })
       i += 1
     end
   end
@@ -1541,8 +2069,8 @@ class Game
     f = 1
     while f < 10
       x = x0 + (tx - x0) * f / 10.0
-      steps = (x - x0).abs / BULLET_SPEED
-      yb = y0 + 6.0 + BULLET_DROP * steps + 0.5 * BULLET_GRAVITY * steps * steps
+      steps = (x - x0).abs / shot_speed
+      yb = y0 + 6.0 + shot_drop * steps + 0.5 * shot_gravity * steps * steps
       return false if ground_y(x) < yb + 4.0
       f += 1
     end
@@ -1626,7 +2154,7 @@ class Game
     while k <= 15
       y = guess + k * 4.0
       if y > CEILING_Y && y + CHOP_SKID_OFF < floor &&
-         ai_round_fate(c.x + d * 34.0, y + 6.0, d * BULLET_SPEED, BULLET_DROP, BULLET_LIFE_MS, t[:x]) == 1
+         ai_round_fate(c.x + d * 34.0, y + 6.0, d * shot_speed, shot_drop, BULLET_LIFE_MS, t[:x]) == 1
         sum += y
         n += 1
       end
@@ -1637,24 +2165,127 @@ class Game
 
   # The altitude from which a round fired now comes down on yeti t from d px
   # away, by the bullet rules in update_chopper / update_bullets: it starts
-  # 34 px ahead and 6 px below the chopper, falls BULLET_DROP + BULLET_GRAVITY
+  # 34 px ahead and 6 px below the chopper, falls shot_drop + shot_gravity
   # per step more each step, and meets a yeti lumbering in at YETI_SPEED
   # (they hold off inside 320 px). It should arrive 20 px above the yeti's
   # ground, mid-way in its hit band.
   def ai_gun_alt(t, d)
     closing = d > 320.0 && d < 760.0 ? YETI_SPEED : 0.0
-    n = (d - 34.0) / (BULLET_SPEED + closing)
+    n = (d - 34.0) / (shot_speed + closing)
     n = 0.0 if n < 0.0
-    ground_y(t[:x]) - 20.0 - 6.0 - (BULLET_DROP * n + BULLET_GRAVITY * n * (n + 1.0) / 2.0)
+    ground_y(t[:x]) - 20.0 - 6.0 - (shot_drop * n + shot_gravity * n * (n + 1.0) / 2.0)
   end
 
-  # The nearest spot to x on its ledge with nobody standing under the skids.
+  # Would a chopper setting down at x be under a drop bear's tree (one up
+  # it, or one waddling back to climb it)? A tree whose bear was shot is safe.
+  def ai_under_bear?(x)
+    @bears.each do |br|
+      next if br[:state] == :gone
+      return true if (br[:tree_x] - x).abs < BEAR_REACH + CHOP_HALF_W
+    end
+    false
+  end
+
+  # A drop bear up its tree within `range` of x that the AI hasn't given up
+  # on, or nil.
+  def ai_bear_near(x, range)
+    best = nil
+    bd = range
+    @bears.each do |br|
+      next unless br[:state] == :tree && br[:tries] < AI_BEAR_TRY_MS
+      d = (br[:tree_x] - x).abs
+      if d < bd
+        bd = d
+        best = br
+      end
+    end
+    best
+  end
+
+  # Shoot drop bear br off its branch: hold off to one side, out of its
+  # reach, at the height from which a round fired now strikes the branch
+  # (ai_bear_round predicts it), face it and fire.
+  def ai_shoot_bear(br)
+    c = @chopper
+    side = c.x < br[:x] ? 1.0 : -1.0
+    hx = br[:x] - side * AI_BEAR_STAND_OFF
+    # Nothing to stand over that way (a cliff or the world's end): the other side.
+    if hx < WORLD_L + 100.0 || hx > WORLD_R - 100.0 || ground_y(hx) < br[:perch] + 40.0
+      side = 0.0 - side
+      hx = br[:x] - side * AI_BEAR_STAND_OFF
+    end
+    ty = ai_bear_alt(br, hx, side)
+    floor = ground_top(hx - CHOP_HALF_W, hx + CHOP_HALF_W) - CHOP_SKID_OFF - 30.0
+    ty = floor if ty > floor
+    if (hx - c.x).abs > 200.0
+      ai_steer(hx, ai_cruise(c.x, hx), false)
+    else
+      ai_steer(hx, ty, true)
+    end
+    face = side > 0.0 ? :right : :left
+    turn_to(face) if c.facing != face && (hx - c.x).abs < 200.0
+    return unless c.facing == face && c.turn_ms <= 0.0 && (c.y - ty).abs < 20.0
+    coming = false
+    @bullets.each do |b|
+      coming = true if ai_bear_round(b[:x], b[:y], b[:vx], b[:vy], b[:life], br) == 1
+    end
+    d = c.dir
+    hit = ai_bear_round(c.x + c.vx + d * 34.0, c.y + c.vy + 6.0, d * shot_speed + c.vx * 0.4, shot_drop,
+                        BULLET_LIFE_MS, br) == 1
+    @fire_held = true if hit && !coming
+  end
+
+  # The middle of the band of heights from which a round fired from hx
+  # (facing side) strikes bear br, or a fair guess if none does.
+  def ai_bear_alt(br, hx, side)
+    sum = 0.0
+    n = 0
+    k = -20
+    while k <= 20
+      y = br[:y] - 12.0 + k * 3.0
+      if y > CEILING_Y && ai_bear_round(hx + side * 34.0, y + 6.0, side * shot_speed, shot_drop, BULLET_LIFE_MS, br) == 1
+        sum += y
+        n += 1
+      end
+      k += 1
+    end
+    n > 0 ? sum / n : br[:y] - 12.0
+  end
+
+  # A round's fate against bear br, by the rules of update_bullets and
+  # bullet_hits: 1 it knocks the bear off, -1 it comes down on a goat, 0
+  # anything else (the ground, a burrow, a yeti in the way, out of time).
+  def ai_bear_round(x, y, vx, vy, life, br)
+    while true
+      vy += shot_gravity
+      x += vx
+      y += vy
+      life -= STEP_MS
+      return 0 if life <= 0.0 || y >= ground_y(x)
+      @drifts.each do |k|
+        return 0 if k[:alive] && (x - k[:x]).abs < DRIFT_W / 2.0 && y > k[:y] - DRIFT_H
+      end
+      @yetis.each do |t|
+        next unless t[:alive]
+        g = ground_y(t[:x])
+        return 0 if (x - t[:x]).abs < 22.0 && y > g - 46.0 && y < g + 4.0
+      end
+      return 1 if (x - br[:x]).abs < 14.0 && (y - br[:y]).abs < 14.0
+      @goats.each do |h|
+        next unless h[:state] == :free || h[:state] == :exiting
+        return -1 if (x - h[:x]).abs < 9.0 && y > ground_y(h[:x]) - 18.0
+      end
+    end
+  end
+
+  # The nearest spot to x on its ledge with nobody standing under the skids
+  # and no drop bear overhead.
   def ai_landing_spot(x, lo, hi)
     k = 0
-    while k < 10
+    while k < 14
       [x + k * 34.0, x - k * 34.0].each do |cand|
         if cand >= lo && cand <= hi
-          clear = true
+          clear = !ai_under_bear?(cand)
           @goats.each do |h|
             clear = false if h[:state] == :free && (h[:x] - cand).abs < GOAT_CRUSH_HALF + 8.0
           end
@@ -1736,11 +2367,41 @@ class Game
 
   # Fly over x high enough to stay out of yeti range, square up to the
   # camera and release a charge where its fall will land it on x.
-  def ai_charge_run(tx)
+  # The height a chopper is safely above yeti t's throws from.
+  def ai_yeti_safe_y(t)
+    ground_y(t[:x]) - 22.0 - YETI_FIRE_ALT - AI_YETI_CLEAR
+  end
+
+  # Charge yeti t from above its throwing height. Caught low inside its
+  # throwing range (it walked up while we were landing or loading), first
+  # get out sideways while climbing -- straight up is straight through its
+  # aim -- and come back over the top.
+  def ai_yeti_charge(t)
     c = @chopper
-    drop_y = ground_y(tx) - 210.0
+    safe_y = ai_yeti_safe_y(t)
+    d = (t[:x] - c.x).abs
+    @ai_backoff = true if c.y > safe_y + 40.0 && d < YETI_RANGE + 40.0
+    @ai_backoff = false if c.y < safe_y + 15.0 || d > YETI_RANGE + 180.0
+    if @ai_backoff
+      away = t[:x] > c.x ? -1.0 : 1.0
+      bx = t[:x] + away * (YETI_RANGE + 220.0)
+      bx = t[:x] - away * (YETI_RANGE + 220.0) if bx < WORLD_L + 100.0 || bx > WORLD_R - 100.0
+      by = safe_y < ai_cruise(c.x, bx) ? safe_y : ai_cruise(c.x, bx)
+      by = CEILING_Y + 12.0 if by < CEILING_Y + 12.0
+      turn_to(c.last_side) if c.facing == :front
+      ai_steer(bx, by, false)
+      return
+    end
+    ai_charge_run(t[:x], safe_y, YETI_RANGE + 200.0)
+  end
+
+  # Drop a charge on tx from drop_y (default: 210 px over the ground
+  # there), already at that height or higher from `climb_by` px out.
+  def ai_charge_run(tx, drop_y = -1.0, climb_by = 260.0)
+    c = @chopper
+    drop_y = ground_y(tx) - 210.0 if drop_y < 0.0
     drop_y = CEILING_Y + 12.0 if drop_y < CEILING_Y + 12.0
-    if (tx - c.x).abs > 260.0
+    if (tx - c.x).abs > climb_by
       cy = ai_cruise(c.x, tx)
       ai_steer(tx, cy < drop_y ? cy : drop_y, false)
     else
@@ -1765,6 +2426,13 @@ class Game
     return unless c.alive
     @ai_ms += STEP_MS
 
+    # A stampede coming: up off the ground, out of its way.
+    if @herds.length > 0 && ai_herd_threat?(c.x) && c.skid_y > ground_y(c.x) - HERD_TALL - 70.0
+      @in_y = -1
+      ai_finish
+      return
+    end
+
     # A yeti near us or near where we mean to land gets dealt with first.
     hunt = nil
     hd = 1.0e9
@@ -1787,12 +2455,22 @@ class Game
     if hunt != nil && c.landed
       @in_y = -1 if (hunt[:x] - c.x).abs < YETI_RANGE + 60.0
     elsif hunt != nil && @ai_state != :return && @ai_state != :unload
-      # No clear line for the cannon (ledges hide each other): charge it.
-      # Unless goats are standing next to it.
-      hunted = ai_hunt(hunt)
-      if !hunted && ai_free_goats_near(hunt[:x], BOMB_BLAST + 40.0)[0] == 0
-        ai_charge_run(hunt[:x])
+      # A charge drives a yeti off in one go, dropped from above its
+      # throwing height, so charge it -- unless goats are standing next to
+      # it, or it's up so high there's no height out of its reach under the
+      # ceiling. Then the cannon, or a charge if the cannon has no clear
+      # line (ledges hide each other) and no goats are near.
+      goats_clear = ai_free_goats_near(hunt[:x], BOMB_BLAST + 40.0)[0] == 0
+      hunted = false
+      if goats_clear && ai_yeti_safe_y(hunt) >= CEILING_Y + 12.0
+        ai_yeti_charge(hunt)
         hunted = true
+      else
+        hunted = ai_hunt(hunt)
+        if !hunted && goats_clear
+          ai_charge_run(hunt[:x])
+          hunted = true
+        end
       end
       if hunted
         ai_finish
@@ -1842,7 +2520,16 @@ class Game
       else
         lg = ledges[li]
         tx = ai_landing_spot(cluster[1] + 40.0, lg[0] + 60.0, lg[1] - 50.0)
-        if (tx - c.x).abs > 250.0
+        # A drop bear up a tree near the landing spot: shoot it out first
+        # (a few seconds' try; the spot is clear of its tree either way).
+        br = ai_bear_near(tx, AI_BEAR_RANGE)
+        if br != nil && !c.landed
+          br[:tries] = br[:tries] + STEP_MS
+          ai_shoot_bear(br)
+          ai_finish
+          return
+        end
+        if (tx - c.x).abs > 250.0 || (@herds.length > 0 && ai_herd_threat?(tx))
           ai_steer(tx, ai_cruise(c.x, tx), false)
         elsif (tx - c.x).abs > 40.0
           # Short sidestep along the ledge (goats walked under the spot):
@@ -2006,7 +2693,7 @@ class Game
     landed = false
     acc = c.facing == :front ? CHOP_ACCEL * 0.6 : CHOP_ACCEL
     ss = []
-    @snowballs.each { |s| ss.push([s[:x], s[:y], s[:vx], s[:vy], 1.0]) }
+    @snowballs.each { |s| ss.push([s[:x], s[:y], s[:vx], s[:vy], 1.0, s[:kind] == 3 ? 1.0 : 0.0]) }
     es = []
     @eagles.each { |j| es.push([j[:x], j[:y], j[:vy], j[:dir], j[:dive] ? 1.0 : 0.0, j[:aim_y]]) }
     rs = []
@@ -2023,7 +2710,7 @@ class Game
         vx = (vx + ix * acc) * CHOP_DRAG
         vx = CHOP_MAX_VX if vx > CHOP_MAX_VX
         vx = 0.0 - CHOP_MAX_VX if vx < 0.0 - CHOP_MAX_VX
-        vy = (vy + iy * CHOP_LIFT) * CHOP_VDRAG
+        vy = (vy + iy * (iy < 0 ? lift_at(y) : CHOP_LIFT)) * CHOP_VDRAG
         vy = CHOP_MAX_VY if vy > CHOP_MAX_VY
         vy = 0.0 - CHOP_MAX_VY if vy < 0.0 - CHOP_MAX_VY
         x += vx
@@ -2054,7 +2741,7 @@ class Game
         s[3] += SNOWBALL_GRAVITY
         s[0] += s[2]
         s[1] += s[3]
-        if s[1] >= ground_y(s[0]) - 4.0 || s[1] < 0.0
+        if s[1] >= ground_y(s[0]) - 4.0 || s[1] < -400.0 || (s[5] > 0.0 && s[3] >= 0.0)
           s[4] = 0.0
           next
         end
@@ -2152,7 +2839,7 @@ class Game
     c = @chopper
     n = 0
     while true
-      vy += BULLET_GRAVITY
+      vy += shot_gravity
       x += vx
       y += vy
       life -= STEP_MS
@@ -2183,7 +2870,7 @@ class Game
   def ai_next_round(target_x)
     c = @chopper
     d = c.dir
-    ai_round_fate(c.x + c.vx + d * 34.0, c.y + c.vy + 6.0, d * BULLET_SPEED + c.vx * 0.4, BULLET_DROP,
+    ai_round_fate(c.x + c.vx + d * 34.0, c.y + c.vy + 6.0, d * shot_speed + c.vx * 0.4, shot_drop,
                   BULLET_LIFE_MS, target_x)
   end
 

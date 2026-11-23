@@ -2,7 +2,8 @@
 # directory, loaded into its own SDL::Sound stream, then deleted), the
 # rotor drone on synth channel 0 while flying, and a four-channel chip
 # tune on all channels for the title and results screens. The animals and
-# villains have a voice for each level (SoundBank::THEMED).
+# villains have a voice for each level (SoundBank#theme); the newer levels'
+# voices are in lib/capri/levels/*_sound.rb.
 
 class Sfx
   RATE = 22050
@@ -114,7 +115,8 @@ end
 class SoundBank
   ROTOR_CH = 0
 
-  # Events whose sound depends on the level: [mountain, arctic, Cascadia].
+  # The arctic's and Cascadia's voices for the events whose sound depends
+  # on the level: [mountain, arctic, Cascadia] (SoundBank#theme).
   # Penguins honk and marmots whistle where goats bleat; gulls cry and owls
   # hoot where eagles beat their wings and screech; Bigfoot grunts lower,
   # whoops when he's driven off, and his pinecones land with a woody thock.
@@ -136,13 +138,24 @@ class SoundBank
     @last_played = {}
     @min_gap = {}
     @dir = ENV["TMPDIR"] || "/tmp"
+    # Tags this run's temp WAVs, so copies launched together don't delete
+    # each other's.
+    @run = (Time.now.to_f * 1000000.0).to_i
     @rotor_on = false
     @rotor_freq = 40.0
+    @rotor_wave = SDL::Synth::TILTED_SAW
+    # Per level: event => the sound that plays for it there.
+    @themes = []
+    lv = 0
+    while lv < LEVEL_COUNT
+      @themes.push({ none: :none })
+      lv += 1
+    end
     build_all
   end
 
   def add(sfx, min_gap_ms)
-    path = "#{@dir}/capricopter_#{sfx.name}.wav"
+    path = "#{@dir}/capricopter_#{@run}_#{sfx.name}.wav"
     sfx.write(path)
     @sounds[sfx.name] = SDL::Sound.new(path)
     @min_gap[sfx.name] = min_gap_ms
@@ -150,9 +163,19 @@ class SoundBank
     File.delete(path)
   end
 
+  # On level lv, play the sound `name` for `event`. The events a level can
+  # give its own voice: :board, :exit, :goat_hit (an animal hit or lost),
+  # :eagle (the diving bird arrives), :screech (it stoops), :squawk (it's
+  # driven off), :yeti_fire (the villain throws), :yeti_off (driven off),
+  # :splat (its missile lands), and the twists' :troll_wake, :bear_drop,
+  # :devil and :splash.
+  def theme(lv, event, name)
+    @themes[lv][event] = name
+  end
+
   def play(name, now_ms)
-    themed = THEMED[name]
-    name = themed[LEVEL[0]] if themed != nil
+    themed = @themes[LEVEL[0]][name]
+    name = themed if themed != nil
     s = @sounds[name]
     return if s == nil
     return if now_ms - @last_played[name] < @min_gap[name]
@@ -163,14 +186,24 @@ class SoundBank
   # The rotor: a low tilted saw whose pitch follows the throttle and whose
   # volume pulses at blade speed. `level` 0 = idling on the ground, 1 =
   # full thrust; `pump` says whether this call should advance the synth.
+  # A spaceship (LevelInfo#ship) hums instead: a smooth triangle that
+  # rises with the throttle, with a slow shimmer.
   def rotor(level, dt_ms, t_ms, pump)
-    target = 34.0 + level * 22.0
+    ship = lv_info.ship
+    wave = ship ? SDL::Synth::TRIANGLE : SDL::Synth::TILTED_SAW
+    if @rotor_on && wave != @rotor_wave
+      SDL::Synth.note_off(ROTOR_CH)
+      @rotor_on = false
+    end
+    target = ship ? 70.0 + level * 45.0 : 34.0 + level * 22.0
     @rotor_freq = @rotor_freq + (target - @rotor_freq) * 0.08
     chop = 0.5 + 0.5 * Math.sin(t_ms * (0.012 + level * 0.01))
     vol = (0.07 + level * 0.09) * (0.55 + 0.45 * chop)
+    vol = (0.08 + level * 0.07) * (0.9 + 0.1 * Math.sin(t_ms * 0.004)) if ship
     if !@rotor_on
       SDL::Synth.set_envelope(ROTOR_CH, 80.0, 0.0, 1.0, 160.0)
-      SDL::Synth.note_on(ROTOR_CH, @rotor_freq, SDL::Synth::TILTED_SAW, vol)
+      SDL::Synth.note_on(ROTOR_CH, @rotor_freq, wave, vol)
+      @rotor_wave = wave
       @rotor_on = true
     else
       SDL::Synth.set_freq(ROTOR_CH, @rotor_freq)
@@ -520,6 +553,99 @@ class SoundBank
     add(s, 500.0)
 
     build_level_voices
+    THEMED.each do |event, names|
+      theme(LV_ARCTIC, event, names[1])
+      theme(LV_CASCADIA, event, names[2])
+    end
+    build_twist_voices
+    build_fjords_voices
+    build_bayou_voices
+    build_outback_voices
+    build_desert_voices
+    build_highlands_voices
+    build_halloween_voices
+    build_north_pole_voices
+    build_moon_voices
+    build_volcano_voices
+    build_jungle_voices
+    build_himalaya_voices
+    build_undersea_voices
+    build_savanna_voices
+    build_mars_voices
+    build_lunar_new_year_voices
+    build_valentine_voices
+    build_st_patrick_voices
+    build_easter_voices
+    build_july4_voices
+  end
+
+  # Plain voices for the twists, which a level's own file may replace.
+  def build_twist_voices
+    # Trolls waking at dusk: a grinding of stone and a low groan.
+    s = sfx(:troll_wake, 900)
+    s.noise(0.0, 500.0, 0.35, 2.5, 0.25, 41)
+    s.tone(200.0, 650.0, 70.0, 52.0, 0.4, 1.5, 2)
+    add(s, 2000.0)
+    theme(LV_FJORDS, :troll_wake, :troll_wake)
+
+    # A drop bear letting go: a rustle of leaves and a falling squeal.
+    s = sfx(:bear_drop, 500)
+    s.noise(0.0, 160.0, 0.22, 5.0, 0.5, 42)
+    s.tone(80.0, 380.0, 900.0, 420.0, 0.16, 2.0, 3)
+    add(s, 200.0)
+    theme(LV_OUTBACK, :bear_drop, :bear_drop)
+
+    # A dust devil spinning up.
+    s = sfx(:devil, 1200)
+    s.swoosh(0.0, 1150.0, 0.25, 0.3, 0.8, 43)
+    add(s, 1500.0)
+    theme(LV_DESERT, :devil, :devil)
+
+    # The chopper going into the water.
+    s = sfx(:splash, 700)
+    s.noise(0.0, 650.0, 0.5, 3.0, 0.45, 44)
+    s.swoosh(0.0, 400.0, 0.3, 0.7, 0.2, 45)
+    add(s, 300.0)
+    theme(LV_BAYOU, :splash, :splash)
+    theme(LV_HIGHLANDS, :splash, :splash)
+
+    # The new twists' plain voices (a level's own file may replace them).
+    # The ground shaking before a vent blows, and the eruption.
+    s = sfx(:tremor, 1300)
+    s.noise(0.0, 1250.0, 0.30, 0.8, 0.12, 46)
+    s.tone(0.0, 1250.0, 38.0, 44.0, 0.30, 0.6, 2)
+    add(s, 1500.0)
+    s = sfx(:lava, 900)
+    s.noise(0.0, 850.0, 0.45, 3.0, 0.3, 47)
+    s.tone(0.0, 500.0, 70.0, 40.0, 0.35, 2.5, 2)
+    add(s, 400.0)
+    # Vines torn away.
+    s = sfx(:vines, 500)
+    s.noise(0.0, 450.0, 0.30, 3.5, 0.6, 48)
+    add(s, 300.0)
+    # A herd thundering.
+    s = sfx(:stampede, 2000)
+    s.noise(0.0, 1950.0, 0.35, 0.7, 0.10, 49)
+    s.tone(0.0, 1950.0, 46.0, 50.0, 0.25, 0.8, 2)
+    add(s, 2500.0)
+    # Wind getting up.
+    s = sfx(:storm, 2200)
+    s.swoosh(0.0, 2150.0, 0.30, 0.2, 0.6, 50)
+    add(s, 3000.0)
+    # A rocket going up, and its burst.
+    s = sfx(:firework, 900)
+    s.tone(0.0, 850.0, 900.0, 2400.0, 0.12, 0.6, 0)
+    s.noise(0.0, 850.0, 0.10, 0.8, 0.8, 51)
+    add(s, 400.0)
+    s = sfx(:pop, 1200)
+    s.noise(0.0, 250.0, 0.45, 6.0, 0.4, 52)
+    s.noise(150.0, 1000.0, 0.18, 2.5, 0.9, 53)
+    add(s, 250.0)
+    # Stunned: a dizzy warble.
+    s = sfx(:stun, 800)
+    s.tone(0.0, 750.0, 1200.0, 500.0, 0.20, 1.0, 3)
+    s.tone(0.0, 750.0, 1500.0, 650.0, 0.10, 1.0, 0)
+    add(s, 500.0)
   end
 end
 
@@ -629,3 +755,23 @@ class Music
     SDL::Synth.note_on(3, 6000.0, SDL::Synth::NOISE, 0.05) if HAT[i] == 1
   end
 end
+
+require_relative "levels/fjords_sound"
+require_relative "levels/bayou_sound"
+require_relative "levels/outback_sound"
+require_relative "levels/desert_sound"
+require_relative "levels/highlands_sound"
+require_relative "levels/halloween_sound"
+require_relative "levels/north_pole_sound"
+require_relative "levels/moon_sound"
+require_relative "levels/volcano_sound"
+require_relative "levels/jungle_sound"
+require_relative "levels/himalaya_sound"
+require_relative "levels/undersea_sound"
+require_relative "levels/savanna_sound"
+require_relative "levels/mars_sound"
+require_relative "levels/lunar_new_year_sound"
+require_relative "levels/valentine_sound"
+require_relative "levels/st_patrick_sound"
+require_relative "levels/easter_sound"
+require_relative "levels/july4_sound"

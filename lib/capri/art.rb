@@ -19,37 +19,156 @@
 # fire lookout, the old-growth sign, hollow stumps blocked by fallen logs
 # and their splintered remains, marmots in three coats, Bigfoot and his
 # pinecones, and great horned owls. Each has a status panel with its
-# ground in profile. The themed readers below return the set for the
-# current LEVEL.
+# ground in profile.
+#
+# Every level's set is a LevelArt. Startup paints only the first; the
+# frame loop paints the rest in the background a slice at a time
+# (paint_some: terrain a few columns at a time, then one slot per step), so
+# they're usually ready before they're needed. One needed before it's
+# done is finished at once behind a loading card (ensure_level). The mountain, arctic and Cascadia sets are
+# painted here; the others by their own files, lib/capri/levels/*_art.rb,
+# which reopen Art with build_level_<key>(set) and
+# paint_<key>_column(...). The themed readers below return the set for
+# the current LEVEL.
+class LevelArt
+  attr_accessor :built, :far, :near, :terrain, :terrain_x, :terrain_top, :terrain_h, :tree_spots, :trees,
+                :base, :sign, :drift, :cave, :goat, :yeti, :yeti_arm, :snowball, :eagle, :crate, :chute,
+                :hud, :logo, :eye, :eye_spots, :eye_gap, :extra, :sky_day, :sky_dusk, :sky_night,
+                # The craft (side, front, HUD icon), its rounds and charges, and
+                # the homing drones (two frames): the shared ones unless a level
+                # paints its own. A ship's engine flame and the Earth in a
+                # space sky (see LevelInfo#ship, #space).
+                :chopper_side, :chopper_front, :chopper_icon, :bullet, :bomb, :raven, :flame, :earth,
+                # How far painting has got: the phase (0 start, 1 terrain, 2 the
+                # level's slots, 3 HUD, 4 logo), the terrain chunk being painted
+                # (its world x, next column or -1 for a new chunk, canvas, top and
+                # height), the slot step, and the time spent.
+                :phase, :tx0, :tcol, :tcanvas, :ttop, :th, :step, :paint_ms
+
+  def initialize(blank)
+    @built = false
+    @far = blank
+    @near = blank
+    @terrain = [blank]
+    @terrain_x = [0.0]
+    @terrain_top = [0]
+    @terrain_h = [0]
+    @tree_spots = [[0.0, 0, 1.0]]
+    @trees = [blank]
+    @base = blank
+    @sign = blank
+    @drift = blank
+    @cave = blank
+    @goat = [[blank]]
+    @yeti = blank
+    @yeti_arm = blank
+    @snowball = blank
+    @eagle = [blank]
+    @crate = blank
+    @chute = blank
+    @hud = blank
+    @logo = blank
+    # The sky, by default the one every level shares; a level may paint its own.
+    @sky_day = blank
+    @sky_dusk = blank
+    @sky_night = blank
+    # Eyes peering out of a sealed container ([x, y] of each pair's left
+    # eye in the DRIFT_W x DRIFT_H texture's own pixels, the right one
+    # eye_gap further on), glancing about and blinking; none if empty.
+    @eye = blank
+    @eye_spots = [[0.0, 0.0]]
+    @eye_spots.pop
+    @eye_gap = 4.2
+    # A level's own textures beyond the shared slots (see Art::EXTRA_*).
+    @extra = [blank]
+    @extra.pop
+    @chopper_side = blank
+    @chopper_front = blank
+    @chopper_icon = blank
+    @bullet = blank
+    @bomb = blank
+    @raven = [blank]
+    @flame = blank
+    @earth = blank
+    @phase = 0
+    @tx0 = 0.0
+    @tcol = -1
+    @tcanvas = Canvas.new(1, 1)
+    @ttop = 0
+    @th = 0
+    @step = 0
+    @paint_ms = 0
+  end
+end
+
 class Art
-  attr_reader :sky_day, :sky_dusk, :sky_night, :stars, :sun, :moon, :aurora,
+  # Indexes into LevelArt#extra for the levels with twists.
+  EXTRA_STONE_TROLL = 0     # fjords: a troll turned to stone (YETI_W x YETI_H)
+  EXTRA_GUM_TREE    = 0     # outback: the drop bears' gum tree (GUM_W x GUM_H)
+  EXTRA_BEAR_SIT    = 1     #          a drop bear on its branch (BEAR_W x BEAR_H)
+  EXTRA_BEAR_FALL   = 2     #          ...letting go, limbs out
+EXTRA_DEVIL       = 0     # desert: two frames of a dust devil (DEVIL_TEX_W x DEVIL_TEX_H);
+                          # undersea: two frames of a swirling current, the same size
+EXTRA_LAVA        = 0     # volcano: a lava bomb (LAVA_W square)
+EXTRA_VINES       = 0     # jungle: vines over a sealed ruin (DRIFT_W x DRIFT_H, drawn on top)
+EXTRA_HERD        = 0     # savanna: two frames of the stampeding herd, running right (HERD_W x HERD_H)
+EXTRA_STORM       = 0     # mars: blowing dust, tileable across (WINDOW_W x STORM_H)
+EXTRA_ROCKET      = 0     # july4: a firework rocket, nose up (ROCKET_W x ROCKET_H)
+EXTRA_BURST       = 1     #        a firework's burst of sparks (BURST_W square)
+LAVA_W = 20
+HERD_W = 160
+HERD_H = 56
+STORM_H = 256
+ROCKET_W = 12
+ROCKET_H = 28
+BURST_W = 128
+  GUM_W = 90
+  GUM_H = 150
+  BEAR_W = 32
+  BEAR_H = 32
+  DEVIL_TEX_W = 90
+  DEVIL_TEX_H = 260
+  attr_reader :stars, :sun, :moon, :aurora,
               :clouds, :cloud_spots, :pad,
-              :chopper_side, :chopper_front, :rotor, :tail_rotor, :shadow,
-              :raven, :bullet, :bomb, :glow, :smoke, :debris, :feather,
-              :chopper_icon, :goat_icon, :eye
+              :rotor, :tail_rotor, :shadow, :glow, :smoke, :debris, :feather, :goat_icon
 
   # Themed art: [mountain, arctic, Cascadia], picked by the current level.
-  def snowball; @snowball_l[LEVEL[0]]; end
-  def crate; @crate_l[LEVEL[0]]; end
-  def chute; @chute_l[LEVEL[0]]; end
-  def logo; @logo_l[LEVEL[0]]; end
-  def mountains_far; @far_l[LEVEL[0]]; end
-  def mountains_near; @near_l[LEVEL[0]]; end
-  def terrain; @terrain_l[LEVEL[0]]; end
-  def terrain_x; @terrain_x_l[LEVEL[0]]; end
-  def terrain_top; @terrain_top_l[LEVEL[0]]; end
-  def terrain_h; @terrain_h_l[LEVEL[0]]; end
-  def trees; @trees_l[LEVEL[0]]; end
-  def tree_spots; @tree_spots_l[LEVEL[0]]; end
-  def base; @base_l[LEVEL[0]]; end
-  def sign; @sign_l[LEVEL[0]]; end
-  def drift; @drift_l[LEVEL[0]]; end
-  def cave; @cave_l[LEVEL[0]]; end
-  def goat; @goat_l[LEVEL[0]]; end
-  def yeti; @yeti_l[LEVEL[0]]; end
-  def yeti_arm; @arm_l[LEVEL[0]]; end
-  def eagle; @eagle_l[LEVEL[0]]; end
-  def hud; @hud_l[LEVEL[0]]; end
+  def snowball; @sets[LEVEL[0]].snowball; end
+  def crate; @sets[LEVEL[0]].crate; end
+  def chute; @sets[LEVEL[0]].chute; end
+  def logo; @sets[LEVEL[0]].logo; end
+  def terrain; @sets[LEVEL[0]].terrain; end
+  def terrain_x; @sets[LEVEL[0]].terrain_x; end
+  def terrain_top; @sets[LEVEL[0]].terrain_top; end
+  def terrain_h; @sets[LEVEL[0]].terrain_h; end
+  def trees; @sets[LEVEL[0]].trees; end
+  def tree_spots; @sets[LEVEL[0]].tree_spots; end
+  def base; @sets[LEVEL[0]].base; end
+  def sign; @sets[LEVEL[0]].sign; end
+  def drift; @sets[LEVEL[0]].drift; end
+  def cave; @sets[LEVEL[0]].cave; end
+  def goat; @sets[LEVEL[0]].goat; end
+  def yeti; @sets[LEVEL[0]].yeti; end
+  def yeti_arm; @sets[LEVEL[0]].yeti_arm; end
+  def eagle; @sets[LEVEL[0]].eagle; end
+  def hud; @sets[LEVEL[0]].hud; end
+  def eye; @sets[LEVEL[0]].eye; end
+  def eye_spots; @sets[LEVEL[0]].eye_spots; end
+  def eye_gap; @sets[LEVEL[0]].eye_gap; end
+  def extra; @sets[LEVEL[0]].extra; end
+  def mountains_far; @sets[LEVEL[0]].far; end
+  def sky_day; @sets[LEVEL[0]].sky_day; end
+  def chopper_side; @sets[LEVEL[0]].chopper_side; end
+  def chopper_front; @sets[LEVEL[0]].chopper_front; end
+  def chopper_icon; @sets[LEVEL[0]].chopper_icon; end
+  def bullet; @sets[LEVEL[0]].bullet; end
+  def bomb; @sets[LEVEL[0]].bomb; end
+  def raven; @sets[LEVEL[0]].raven; end
+  def flame; @sets[LEVEL[0]].flame; end
+  def earth; @sets[LEVEL[0]].earth; end
+  def sky_dusk; @sets[LEVEL[0]].sky_dusk; end
+  def sky_night; @sets[LEVEL[0]].sky_night; end
+  def mountains_near; @sets[LEVEL[0]].near; end
 
   # Panel layout, shared with View.
   HUD_BOX_Y  = HUD_Y + 8
@@ -87,6 +206,11 @@ class Art
   ARM_H = 10
   EAGLE_W = 70
   EAGLE_H = 34
+  # A spaceship's engine flame (pointing down, its root at the top) and
+  # the Earth in a space sky.
+  FLAME_W = 24
+  FLAME_H = 40
+  EARTH_W = 96
   RAVEN_W = 32
   RAVEN_H = 20
   CRATE_W = 56               # drawn at twice its on-screen size
@@ -110,10 +234,6 @@ class Art
     @sky_dusk  = build_sky([0.26, 0.16, 0.46], [1.0, 0.60, 0.52])
     @sky_night = build_sky([0.01, 0.02, 0.08], [0.06, 0.10, 0.24])
     @sun       = build_soft(180, 1.6, 1.0, 0.95, 0.75, 1.0)
-    @far_l  = [build_mountains(MOUNT_FAR_H, [0.62, 0.70, 0.86], [0.48, 0.56, 0.74], 3, false, 0.8),
-               build_ice_range(MOUNT_FAR_H, 5, false), build_cascade_range(MOUNT_FAR_H, 13, false)]
-    @near_l = [build_mountains(MOUNT_NEAR_H, [0.36, 0.44, 0.58], [0.24, 0.32, 0.44], 7, true, 0.6),
-               build_ice_range(MOUNT_NEAR_H, 9, true), build_cascade_range(MOUNT_NEAR_H, 17, true)]
     @aurora    = build_aurora
     @stars     = build_stars
     @moon      = build_moon
@@ -121,83 +241,382 @@ class Art
     @cloud_spots = plan_clouds
     SDL::Log.write("art: sky #{SDL::Screen.ticks - t} ms")
     t = SDL::Screen.ticks
-    @terrain_l = []
-    @terrain_x_l = []
-    @terrain_top_l = []
-    @terrain_h_l = []
-    @tree_spots_l = []
-    lv = 0
-    while lv < LEVEL_COUNT
-      set_level(lv)
-      @terrain = []
-      @terrain_x = []
-      @terrain_top = []
-      @terrain_h = []
-      build_terrain
-      @terrain_l.push(@terrain)
-      @terrain_x_l.push(@terrain_x)
-      @terrain_top_l.push(@terrain_top)
-      @terrain_h_l.push(@terrain_h)
-      @tree_spots_l.push(plan_trees)
-      lv += 1
-    end
-    set_level(0)
-    @trees_l   = [[build_tree(0), build_tree(1)], [build_serac, build_inukshuk], [build_fir, build_cedar]]
-    SDL::Log.write("art: mountain #{SDL::Screen.ticks - t} ms")
-    t = SDL::Screen.ticks
-    @base_l    = [build_base, build_station, build_ranger_station]
     @pad       = build_pad
-    @sign_l    = [build_sign, build_ice_sign, build_forest_sign]
-    @drift_l   = [build_drift, build_igloo, build_stump]
-    @cave_l    = [build_cave, build_igloo_ruin, build_stump_ruin]
-    @eye       = build_eye
     @chopper_side  = build_chopper_side
     @chopper_front = build_chopper_front
     @rotor     = build_rotor
     @tail_rotor = build_tail_rotor
     @shadow    = build_shadow
-    @goat_l    = [build_goat_frames, build_penguin_frames, build_marmot_frames]
-    yeti = build_yeti(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN, false)
-    arm = build_yeti_arm(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN)
-    @yeti_l    = [yeti, yeti, build_yeti(BIGFOOT_FUR, BIGFOOT_SHADE, BIGFOOT_SKIN, true)]
-    @arm_l     = [arm, arm, build_yeti_arm(BIGFOOT_FUR, BIGFOOT_SHADE, BIGFOOT_SKIN)]
-    snowball = build_snowball
-    @snowball_l = [snowball, snowball, build_pinecone]
-    @eagle_l   = [[build_eagle(0), build_eagle(1), build_eagle(2)], [build_seagull(0), build_seagull(1), build_seagull(2)],
-                  [build_owl(0), build_owl(1), build_owl(2)]]
     @raven     = [build_raven(0), build_raven(1)]
     @bullet    = build_bullet
     @bomb      = build_charge
     @glow      = build_soft(32, 1.6, 1.0, 1.0, 1.0, 0.9)
     @smoke     = build_soft(32, 1.1, 1.0, 1.0, 1.0, 0.55)
     @debris    = build_debris
-    @crate_l   = [build_crate, build_fish_case, build_berry_crate]
-    @chute_l   = [build_chute([0.92, 0.94, 0.96], [0.88, 0.25, 0.22]), build_chute([0.96, 0.96, 0.97], [0.95, 0.48, 0.12]),
-                  build_chute([0.90, 0.84, 0.66], [0.22, 0.45, 0.25])]
     @feather   = build_feather
     @chopper_icon = build_chopper_icon
     @goat_icon = build_goat_icon
     SDL::Log.write("art: sprites #{SDL::Screen.ticks - t} ms")
-    t = SDL::Screen.ticks
-    @hud_l = []
-    labels = ["GOATS", "PENGUINS", "MARMOTS"]
+    @hud_base = Canvas.new(1, 1)
+    @logo_base = Canvas.new(1, 1)
+    @sets = []
     lv = 0
     while lv < LEVEL_COUNT
-      set_level(lv)
-      @hud_l.push(build_hud(labels[lv]))
+      @sets.push(LevelArt.new(@glow))
       lv += 1
     end
-    set_level(0)
-    @logo_l    = [build_logo("SAVE THE MOUNTAIN GOATS"), build_logo("SAVE THE ARCTIC PENGUINS"),
-                  build_logo("SAVE THE CASCADE MARMOTS")]
-    SDL::Log.write("art: hud+logo #{SDL::Screen.ticks - t} ms")
-
-    @font_logo.close
-    @font_sub.close
-    @font_label.close
-    @font_small.close
-    @font_sign.close
+    ensure_level(LEVEL[0])
   end
+
+  def ready?(lv)
+    @sets[lv].built
+  end
+
+  # Finishes level lv's set now if it isn't done (a second or two at most).
+  def ensure_level(lv)
+    paint_some(lv, 1000000)
+  end
+
+  # Paints level lv's set for up to budget_ms, carrying on from wherever it
+  # got to; true once it's done.
+  def paint_some(lv, budget_ms)
+    s = @sets[lv]
+    return true if s.built
+    t0 = SDL::Screen.ticks
+    t_end = t0 + budget_ms
+    keep = LEVEL[0]
+    set_level(lv)
+    while !s.built && SDL::Screen.ticks < t_end
+      paint_step(lv, s, t_end)
+    end
+    set_level(keep)
+    s.paint_ms = s.paint_ms + (SDL::Screen.ticks - t0)
+    SDL::Log.write("art: #{LEVELS[lv].key} #{s.paint_ms} ms") if s.built
+    s.built
+  end
+
+  # One slice of painting: a few terrain columns, or one slot.
+  def paint_step(lv, s, t_end)
+    if s.phase == 0
+      s.sky_day = @sky_day
+      s.sky_dusk = @sky_dusk
+      s.sky_night = @sky_night
+      s.chopper_side = @chopper_side
+      s.chopper_front = @chopper_front
+      s.chopper_icon = @chopper_icon
+      s.bullet = @bullet
+      s.bomb = @bomb
+      s.raven = @raven
+      s.flame = @glow
+      s.earth = @moon
+      list = [@glow]
+      list.pop
+      s.terrain = list
+      xs = [0.0]
+      xs.pop
+      s.terrain_x = xs
+      tops = [0]
+      tops.pop
+      s.terrain_top = tops
+      hs = [0]
+      hs.pop
+      s.terrain_h = hs
+      s.tx0 = WORLD_L - 64.0
+      s.tcol = -1
+      s.phase = 1
+    elsif s.phase == 1
+      if s.tx0 >= WORLD_R + 64.0
+        s.tcanvas = Canvas.new(1, 1)
+        s.phase = 2
+        s.step = 0
+        return
+      end
+      if s.tcol < 0
+        top = ground_top(s.tx0, s.tx0 + CHUNK_W).floor - 2
+        s.ttop = top
+        s.th = HUD_Y - top + 8
+        s.tcanvas = Canvas.new(CHUNK_W, s.th)
+        s.tcol = 0
+      end
+      c = s.tcanvas
+      # Columns until the slice's time is up (checked every few).
+      x = s.tcol
+      while x < CHUNK_W
+        n = 0
+        while n < 4 && x < CHUNK_W
+          wx = s.tx0 + x + 0.5
+          paint_column(c, x, wx, ground_y(wx), s.ttop, s.th)
+          x += 1
+          n += 1
+        end
+        break if SDL::Screen.ticks >= t_end
+      end
+      s.tcol = x
+      if x >= CHUNK_W
+        s.terrain.push(c.to_texture(@renderer, true))
+        s.terrain_x.push(s.tx0)
+        s.terrain_top.push(s.ttop)
+        s.terrain_h.push(s.th)
+        s.tx0 = s.tx0 + CHUNK_W
+        s.tcol = -1
+      end
+    elsif s.phase == 2
+      t = SDL::Screen.ticks
+      if build_level_set(lv, s, s.step)
+        d = SDL::Screen.ticks - t
+        SDL::Log.write("art: #{LEVELS[lv].key} step #{s.step} took #{d} ms") if d > 60
+        s.step = s.step + 1
+      else
+        s.phase = 3
+      end
+    elsif s.phase == 3
+      s.hud = build_hud(LEVELS[lv].animals)
+      s.phase = 4
+    else
+      s.logo = build_logo(LEVELS[lv].logo)
+      s.built = true
+    end
+  end
+
+  # Step `step` of painting level lv's own slots; false once there are no more.
+  def build_level_set(lv, s, step)
+    if lv == LV_MOUNTAIN
+      build_level_mountain(s, step)
+    elsif lv == LV_ARCTIC
+      build_level_arctic(s, step)
+    elsif lv == LV_CASCADIA
+      build_level_cascadia(s, step)
+    elsif lv == LV_FJORDS
+      build_level_fjords(s, step)
+    elsif lv == LV_BAYOU
+      build_level_bayou(s, step)
+    elsif lv == LV_OUTBACK
+      build_level_outback(s, step)
+    elsif lv == LV_DESERT
+      build_level_desert(s, step)
+    elsif lv == LV_HIGHLANDS
+      build_level_highlands(s, step)
+    elsif lv == LV_HALLOWEEN
+      build_level_halloween(s, step)
+    elsif lv == LV_NORTH_POLE
+      build_level_north_pole(s, step)
+    elsif lv == LV_MOON
+      build_level_moon(s, step)
+    elsif lv == LV_VOLCANO
+      build_level_volcano(s, step)
+    elsif lv == LV_JUNGLE
+      build_level_jungle(s, step)
+    elsif lv == LV_HIMALAYA
+      build_level_himalaya(s, step)
+    elsif lv == LV_UNDERSEA
+      build_level_undersea(s, step)
+    elsif lv == LV_SAVANNA
+      build_level_savanna(s, step)
+    elsif lv == LV_MARS
+      build_level_mars(s, step)
+    elsif lv == LV_LUNAR_NEW_YEAR
+      build_level_lunar_new_year(s, step)
+    elsif lv == LV_VALENTINE
+      build_level_valentine(s, step)
+    elsif lv == LV_ST_PATRICK
+      build_level_st_patrick(s, step)
+    elsif lv == LV_EASTER
+      build_level_easter(s, step)
+    else
+      build_level_july4(s, step)
+    end
+  end
+
+  def paint_column(c, x, wx, g, top, h)
+    lv = LEVEL[0]
+    if lv == LV_MOUNTAIN
+      paint_mountain_column(c, x, wx, g, top, h)
+    elsif lv == LV_ARCTIC
+      paint_ice_column(c, x, wx, g, top, h)
+    elsif lv == LV_CASCADIA
+      paint_forest_column(c, x, wx, g, top, h)
+    elsif lv == LV_FJORDS
+      paint_fjords_column(c, x, wx, g, top, h)
+    elsif lv == LV_BAYOU
+      paint_bayou_column(c, x, wx, g, top, h)
+    elsif lv == LV_OUTBACK
+      paint_outback_column(c, x, wx, g, top, h)
+    elsif lv == LV_DESERT
+      paint_desert_column(c, x, wx, g, top, h)
+    elsif lv == LV_HIGHLANDS
+      paint_highlands_column(c, x, wx, g, top, h)
+    elsif lv == LV_HALLOWEEN
+      paint_halloween_column(c, x, wx, g, top, h)
+    elsif lv == LV_NORTH_POLE
+      paint_north_pole_column(c, x, wx, g, top, h)
+    elsif lv == LV_MOON
+      paint_moon_column(c, x, wx, g, top, h)
+    elsif lv == LV_VOLCANO
+      paint_volcano_column(c, x, wx, g, top, h)
+    elsif lv == LV_JUNGLE
+      paint_jungle_column(c, x, wx, g, top, h)
+    elsif lv == LV_HIMALAYA
+      paint_himalaya_column(c, x, wx, g, top, h)
+    elsif lv == LV_UNDERSEA
+      paint_undersea_column(c, x, wx, g, top, h)
+    elsif lv == LV_SAVANNA
+      paint_savanna_column(c, x, wx, g, top, h)
+    elsif lv == LV_MARS
+      paint_mars_column(c, x, wx, g, top, h)
+    elsif lv == LV_LUNAR_NEW_YEAR
+      paint_lunar_new_year_column(c, x, wx, g, top, h)
+    elsif lv == LV_VALENTINE
+      paint_valentine_column(c, x, wx, g, top, h)
+    elsif lv == LV_ST_PATRICK
+      paint_st_patrick_column(c, x, wx, g, top, h)
+    elsif lv == LV_EASTER
+      paint_easter_column(c, x, wx, g, top, h)
+    else
+      paint_july4_column(c, x, wx, g, top, h)
+    end
+  end
+
+  def build_level_mountain(s, step)
+    case step
+    when 0
+      s.far = build_mountains(MOUNT_FAR_H, [0.62, 0.70, 0.86], [0.48, 0.56, 0.74], 3, false, 0.8)
+    when 1
+      s.near = build_mountains(MOUNT_NEAR_H, [0.36, 0.44, 0.58], [0.24, 0.32, 0.44], 7, true, 0.6)
+    when 2
+      s.trees = [build_tree(0), build_tree(1)]
+    when 3
+      s.tree_spots = plan_trees
+    when 4
+      s.base = build_base
+    when 5
+      s.sign = build_sign
+    when 6
+      s.drift = build_drift
+    when 7
+      s.cave = build_cave
+    when 8
+      s.goat = build_goat_frames
+    when 9
+      s.yeti = build_yeti(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN, false)
+    when 10
+      s.yeti_arm = build_yeti_arm(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN)
+    when 11
+      s.snowball = build_snowball
+    when 12
+      s.eagle = [build_eagle(0), build_eagle(1), build_eagle(2)]
+    when 13
+      s.crate = build_crate
+    when 14
+      s.chute = build_chute([0.92, 0.94, 0.96], [0.88, 0.25, 0.22])
+    else
+      return false
+    end
+    true
+  end
+
+  def build_level_arctic(s, step)
+    case step
+    when 0
+      s.far = build_ice_range(MOUNT_FAR_H, 5, false)
+    when 1
+      s.near = build_ice_range(MOUNT_NEAR_H, 9, true)
+    when 2
+      s.trees = [build_serac, build_inukshuk]
+    when 3
+      s.tree_spots = plan_trees
+    when 4
+      s.base = build_station
+    when 5
+      s.sign = build_ice_sign
+    when 6
+      s.drift = build_igloo
+    when 7
+      s.cave = build_igloo_ruin
+    when 8
+      s.goat = build_penguin_frames
+    when 9
+      s.yeti = build_yeti(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN, false)
+    when 10
+      s.yeti_arm = build_yeti_arm(YETI_FUR, [0.70, 0.76, 0.88], YETI_SKIN)
+    when 11
+      s.snowball = build_snowball
+    when 12
+      s.eagle = [build_seagull(0), build_seagull(1), build_seagull(2)]
+    when 13
+      s.crate = build_fish_case
+    when 14
+      s.chute = build_chute([0.96, 0.96, 0.97], [0.95, 0.48, 0.12])
+    else
+      return false
+    end
+    true
+  end
+
+  def build_level_cascadia(s, step)
+    case step
+    when 0
+      s.far = build_cascade_range(MOUNT_FAR_H, 13, false)
+    when 1
+      s.near = build_cascade_range(MOUNT_NEAR_H, 17, true)
+    when 2
+      s.trees = [build_fir, build_cedar]
+    when 3
+      s.tree_spots = plan_trees
+    when 4
+      s.base = build_ranger_station
+    when 5
+      s.sign = build_forest_sign
+    when 6
+      s.drift = build_stump
+    when 7
+      s.cave = build_stump_ruin
+    when 8
+      s.goat = build_marmot_frames
+    when 9
+      s.yeti = build_yeti(BIGFOOT_FUR, BIGFOOT_SHADE, BIGFOOT_SKIN, true)
+    when 10
+      s.yeti_arm = build_yeti_arm(BIGFOOT_FUR, BIGFOOT_SHADE, BIGFOOT_SKIN)
+    when 11
+      s.snowball = build_pinecone
+    when 12
+      s.eagle = [build_owl(0), build_owl(1), build_owl(2)]
+    when 13
+      s.crate = build_berry_crate
+    when 14
+      s.chute = build_chute([0.90, 0.84, 0.66], [0.22, 0.45, 0.25])
+    when 15
+      s.eye = build_eye
+    when 16
+      s.eye_spots = STUMP_EYES
+    when 17
+      s.eye_gap = STUMP_EYE_GAP
+    else
+      return false
+    end
+    true
+  end
+
+  # Scattered props (trees, rocks...) for a level: every gap0 + up to gapr
+  # px along, kinds picked at random from 0...kinds, scaled scale0 + up to
+  # scaler; never on the ledges, the pad, the base or the sign, nor above
+  # min_g (screen y) or on slopes steeper than max_slope, nor in water.
+  def plan_scatter(seed, gap0, gapr, kinds, scale0, scaler, min_g, max_slope)
+    rng = Random.new(seed)
+    list = []
+    x = WORLD_L + 120.0
+    while x < WORLD_R - 120.0
+      g = ground_y(x)
+      slope = (ground_y(x + 10.0) - ground_y(x - 10.0)).abs / 20.0
+      ok = (x - BASE_PAD_X).abs > 170.0 && (x - BASE_DOOR_X).abs > 200.0 && (x - FENCE_X).abs > 70.0
+      ok = false if ledge_at(x) >= 0 || ledge_at(x - 40.0) >= 0 || ledge_at(x + 40.0) >= 0
+      ok = false if slope > max_slope || g < min_g || water_y(x) < g
+      kind = rng.rand(kinds)
+      list.push([x, kind, scale0 + rng.rand * scaler]) if ok
+      x += gap0 + rng.rand * gapr
+    end
+    list
+  end
+
 
   # ---- helpers ----
 
@@ -365,95 +784,65 @@ class Art
   # The ground from the heightfield, in CHUNK_W-wide slices (texture,
   # world x, screen y of its top, height). Noise is
   # sampled in world coordinates so the slices meet seamlessly.
-  def build_terrain
-    x0 = WORLD_L - 64.0
-    while x0 < WORLD_R + 64.0
-      build_terrain_chunk(x0)
-      x0 += CHUNK_W
-    end
-  end
-
-  def build_terrain_chunk(x0)
-    top = ground_top(x0, x0 + CHUNK_W).floor - 2
-    h = HUD_Y - top + 8
-    c = Canvas.new(CHUNK_W, h)
-    x = 0
-    while x < CHUNK_W
-      wx = x0 + x + 0.5
-      g = ground_y(wx)
-      if arctic?
-        paint_ice_column(c, x, wx, g, top, h)
-        x += 1
-        next
-      end
-      if cascadia?
-        paint_forest_column(c, x, wx, g, top, h)
-        x += 1
-        next
-      end
-      slope = (ground_y(wx + 3.0) - ground_y(wx - 3.0)).abs / 6.0
-      # 0 on the mountain, 1 down in the valley meadow, blended between.
-      meadow = c.clampf((g - 540.0) / 30.0, 0.0, 1.0)
-      # Snow lies deep on the flats and thin on steep rock; none in the valley.
-      snow = slope < 0.06 ? 12.0 : (slope < 0.5 ? 7.0 - slope * 6.0 : 2.5)
-      snow *= 1.0 - meadow
-      y = g.floor.to_i - top
-      while y < h
-        wy = top + y + 0.5
-        d = wy - g
-        if d >= -1.0
-          n = c.fbm(wx * 0.035, wy * 0.05, 7, 3)
-          if d < snow
-            t = d / (snow + 0.01)
-            sp = n > 0.68 ? 0.05 : 0.0
-            r = mix(0.97, 0.74, t * t) + sp
-            gg = mix(0.98, 0.81, t * t) + sp
-            b = mix(1.0, 0.95, t * t)
-          else
-            # Slate with crisp tilted strata and dark cracks, sunlit near the
-            # surface and darker with depth.
-            k = c.fbm(wx * 0.06, wy * 0.025, 21, 2)
-            s = Math.sin(wy * 0.16 + wx * 0.06 + n * 5.0)
-            band = c.smoothstep(0.55, 0.85, s) * 0.10 - c.smoothstep(-0.7, -0.95, s) * 0.06
-            crack = (k - 0.5).abs < 0.025 ? -0.14 : 0.0
-            rim = d < 16.0 ? (1.0 - d / 16.0) * 0.10 : 0.0
-            f = 1.0 - c.clampf(d / 220.0, 0.0, 1.0) * 0.45
-            r = (0.36 + n * 0.16 + band + crack + rim) * f
-            gg = (0.36 + n * 0.15 + band + crack + rim) * f
-            b = (0.41 + n * 0.14 + band + crack + rim) * f
-            # A dusting of snow caught on the ledges of the strata.
-            if k > 0.64 && meadow < 0.5
-              r = mix(r, 0.90, 0.55)
-              gg = mix(gg, 0.92, 0.55)
-              b = mix(b, 0.98, 0.55)
-            end
-            if meadow > 0.0
-              if d < 4.0
-                mr = 0.50 + n * 0.18
-                mg = 0.70 + n * 0.16
-                mb = 0.32
-              else
-                t = c.clampf((d - 4.0) / 50.0, 0.0, 1.0)
-                mr = 0.40 + n * 0.14 - t * 0.12
-                mg = 0.33 + n * 0.12 - t * 0.10
-                mb = 0.26 + n * 0.08 - t * 0.08
-              end
-              r = mix(r, mr, meadow)
-              gg = mix(gg, mg, meadow)
-              b = mix(b, mb, meadow)
-            end
+  # The mountain: snow on slate, a meadow in the valley.
+  def paint_mountain_column(c, x, wx, g, top, h)
+    slope = (ground_y(wx + 3.0) - ground_y(wx - 3.0)).abs / 6.0
+    # 0 on the mountain, 1 down in the valley meadow, blended between.
+    meadow = c.clampf((g - 540.0) / 30.0, 0.0, 1.0)
+    # Snow lies deep on the flats and thin on steep rock; none in the valley.
+    snow = slope < 0.06 ? 12.0 : (slope < 0.5 ? 7.0 - slope * 6.0 : 2.5)
+    snow *= 1.0 - meadow
+    y = g.floor.to_i - top
+    while y < h
+      wy = top + y + 0.5
+      d = wy - g
+      if d >= -1.0
+        n = c.fbm(wx * 0.035, wy * 0.05, 7, 3)
+        if d < snow
+          t = d / (snow + 0.01)
+          sp = n > 0.68 ? 0.05 : 0.0
+          r = mix(0.97, 0.74, t * t) + sp
+          gg = mix(0.98, 0.81, t * t) + sp
+          b = mix(1.0, 0.95, t * t)
+        else
+          # Slate with crisp tilted strata and dark cracks, sunlit near the
+          # surface and darker with depth.
+          k = c.fbm(wx * 0.06, wy * 0.025, 21, 2)
+          s = Math.sin(wy * 0.16 + wx * 0.06 + n * 5.0)
+          band = c.smoothstep(0.55, 0.85, s) * 0.10 - c.smoothstep(-0.7, -0.95, s) * 0.06
+          crack = (k - 0.5).abs < 0.025 ? -0.14 : 0.0
+          rim = d < 16.0 ? (1.0 - d / 16.0) * 0.10 : 0.0
+          f = 1.0 - c.clampf(d / 220.0, 0.0, 1.0) * 0.45
+          r = (0.36 + n * 0.16 + band + crack + rim) * f
+          gg = (0.36 + n * 0.15 + band + crack + rim) * f
+          b = (0.41 + n * 0.14 + band + crack + rim) * f
+          # A dusting of snow caught on the ledges of the strata.
+          if k > 0.64 && meadow < 0.5
+            r = mix(r, 0.90, 0.55)
+            gg = mix(gg, 0.92, 0.55)
+            b = mix(b, 0.98, 0.55)
           end
-          cov = d < 0.0 ? d + 1.0 : 1.0
-          c.px_blend(x, y, c.clampf(r, 0.0, 1.0), c.clampf(gg, 0.0, 1.0), c.clampf(b, 0.0, 1.0), cov)
+          if meadow > 0.0
+            if d < 4.0
+              mr = 0.50 + n * 0.18
+              mg = 0.70 + n * 0.16
+              mb = 0.32
+            else
+              t = c.clampf((d - 4.0) / 50.0, 0.0, 1.0)
+              mr = 0.40 + n * 0.14 - t * 0.12
+              mg = 0.33 + n * 0.12 - t * 0.10
+              mb = 0.26 + n * 0.08 - t * 0.08
+            end
+            r = mix(r, mr, meadow)
+            gg = mix(gg, mg, meadow)
+            b = mix(b, mb, meadow)
+          end
         end
-        y += 1
+        cov = d < 0.0 ? d + 1.0 : 1.0
+        c.px_blend(x, y, c.clampf(r, 0.0, 1.0), c.clampf(gg, 0.0, 1.0), c.clampf(b, 0.0, 1.0), cov)
       end
-      x += 1
+      y += 1
     end
-    @terrain.push(c.to_texture(@renderer, true))
-    @terrain_x.push(x0)
-    @terrain_top.push(top)
-    @terrain_h.push(h)
   end
 
   def build_tree(kind)
@@ -2371,7 +2760,10 @@ class Art
     c.text(@font_label, text, x + 10, y + 5, 0.62, 0.64, 0.72, 1.0, :left)
   end
 
-  def build_hud(label)
+  # The status panel's metal, rivets and boxes, the same on every level
+  # (painted once; each level's panel is a copy with its own label and
+  # radar profile).
+  def build_hud_base
     c = Canvas.new(WINDOW_W, HUD_H)
     c.brushed(0, 0, WINDOW_W, HUD_H, 0.26, 3)
     c.capsule(0.0, 1.5, WINDOW_W.to_f, 1.5, 1.0, 0.55, 0.57, 0.62, 0.8)
@@ -2383,26 +2775,37 @@ class Art
       x += 64.0
     end
     by = HUD_BOX_Y - HUD_Y
-    label_box(c, HUD_BOX1_X, by, HUD_BOX_W, HUD_BOX_H, label)
+    inset_box(c, HUD_BOX1_X.to_f, by.to_f, HUD_BOX_W.to_f, HUD_BOX_H.to_f)
     label_box(c, HUD_BOX2_X, by, HUD_BOX_W, HUD_BOX_H, "SCORE")
     label_box(c, HUD_BOX3_X, by, HUD_BOX_W, HUD_BOX_H, "MISSION")
     c.text(@font_small, "ABOARD", HUD_BOX1_X + 12, by + 40, 0.62, 0.64, 0.72, 1.0, :left)
     c.text(@font_small, "RESCUED", HUD_BOX1_X + 118, by + 40, 0.5, 0.9, 0.6, 1.0, :left)
     c.text(@font_small, "LOST", HUD_BOX1_X + 226, by + 40, 0.95, 0.5, 0.45, 1.0, :left)
     c.text(@font_small, "HIGH", HUD_BOX2_X + 12, by + 40, 0.62, 0.64, 0.72, 1.0, :left)
-    c.text(@font_small, "CHOPPERS", HUD_BOX3_X + 118, by + 5, 0.62, 0.64, 0.72, 1.0, :left)
     ry = RADAR_Y - HUD_Y
     inset_box(c, RADAR_X.to_f, ry.to_f, RADAR_W.to_f, RADAR_H.to_f)
-    # The mountain in profile.
+    c
+  end
+
+  def build_hud(label)
+    @hud_base = build_hud_base if @hud_base.w == 1
+    c = @hud_base.copy
+    by = HUD_BOX_Y - HUD_Y
+    c.text(@font_label, label, HUD_BOX1_X + 10, by + 5, 0.62, 0.64, 0.72, 1.0, :left)
+    c.text(@font_small, "#{lv_info.craft}S", HUD_BOX3_X + 118, by + 5, 0.62, 0.64, 0.72, 1.0, :left)
+    ry = RADAR_Y - HUD_Y
+    # The level's ground in profile.
     rx = RADAR_X + 6
     while rx < RADAR_X + RADAR_W - 6
       wx = WORLD_L + (rx - RADAR_X - 6 + 0.5) / (RADAR_W - 12) * (WORLD_R - WORLD_L)
-      top = radar_py(ground_y(wx)) - HUD_Y
+      top = radar_py(solid_y(wx)) - HUD_Y
       y = top.floor
       bottom = ry + RADAR_H - 3
       while y < bottom
         k = y == top.floor ? 1.0 - (top - top.floor) : 1.0
-        if y < top + 1.5 && wx < FENCE_X
+        if water_y(wx) < ground_y(wx) && y < radar_py(water_y(wx)) - HUD_Y + 1.5
+          c.px_blend(rx, y, 0.35, 0.55, 0.85, 0.8 * k)
+        elsif y < top + 1.5 && wx < FENCE_X
           c.px_blend(rx, y, 0.75, 0.80, 0.90, 0.8 * k)
         else
           c.px_blend(rx, y, 0.30, 0.33, 0.42, 0.8 * k)
@@ -2417,7 +2820,9 @@ class Art
 
   # ---- Title logo ----
 
-  def build_logo(sub)
+  # The title and its banner, the same on every level (painted once; each
+  # level's logo is a copy with its own subtitle).
+  def build_logo_base
     c = Canvas.new(LOGO_W, LOGO_H)
     cx = LOGO_W / 2
     title = "CAPRICOPTER"
@@ -2435,6 +2840,13 @@ class Art
     c.text(@font_logo, title, cx - 1, 3, 1.0, 1.0, 1.0, 0.55, :center)
     c.shadow_poly([[cx - 210.0, 140.0], [cx + 210.0, 140.0], [cx + 210.0, 182.0], [cx - 210.0, 182.0]], 5.0, 0.0, 0.6)
     c.plastic_poly([[cx - 206.0, 136.0], [cx + 206.0, 136.0], [cx + 206.0, 178.0], [cx - 206.0, 178.0]], 8.0, 0.80, 0.16, 0.13, 1.0, 3.0)
+    c
+  end
+
+  def build_logo(sub)
+    @logo_base = build_logo_base if @logo_base.w == 1
+    c = @logo_base.copy
+    cx = LOGO_W / 2
     c.text(@font_sub, sub, cx + 1, 142, 0.0, 0.0, 0.0, 0.5, :center)
     c.text(@font_sub, sub, cx, 141, 1.0, 1.0, 1.0, 1.0, :center)
     c.to_texture(@renderer, true)
@@ -2449,3 +2861,23 @@ end
 def radar_py(wy)
   Art::RADAR_Y + 12.0 + (wy - CEILING_Y) / (GROUND_Y - CEILING_Y) * (Art::RADAR_H - 16.0)
 end
+
+require_relative "levels/fjords_art"
+require_relative "levels/bayou_art"
+require_relative "levels/outback_art"
+require_relative "levels/desert_art"
+require_relative "levels/highlands_art"
+require_relative "levels/halloween_art"
+require_relative "levels/north_pole_art"
+require_relative "levels/moon_art"
+require_relative "levels/volcano_art"
+require_relative "levels/jungle_art"
+require_relative "levels/himalaya_art"
+require_relative "levels/undersea_art"
+require_relative "levels/savanna_art"
+require_relative "levels/mars_art"
+require_relative "levels/lunar_new_year_art"
+require_relative "levels/valentine_art"
+require_relative "levels/st_patrick_art"
+require_relative "levels/easter_art"
+require_relative "levels/july4_art"

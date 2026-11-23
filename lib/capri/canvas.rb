@@ -15,6 +15,20 @@ class Canvas
     @a = Array.new(n, 0.0)
   end
 
+  # A new canvas with this one's pixels.
+  def copy
+    c = Canvas.new(@w, @h)
+    c.take(@r.dup, @g.dup, @b.dup, @a.dup)
+    c
+  end
+
+  def take(r, g, b, a)
+    @r = r
+    @g = g
+    @b = b
+    @a = a
+  end
+
   def clampf(v, lo, hi)
     return lo if v < lo
     return hi if v > hi

@@ -15,6 +15,9 @@ module ChopFFI
   ffi_func :SDL_RaiseWindow,            [:ptr], :bool
   ffi_func :SDL_SetWindowPosition,      [:ptr, :int, :int], :bool
   ffi_func :SDL_WarpMouseInWindow,      [:ptr, :float, :float], :void
+  ffi_func :SDL_RenderReadPixels,       [:ptr, :ptr], :ptr
+  ffi_func :SDL_SaveBMP,                [:ptr, :str], :bool
+  ffi_func :SDL_DestroySurface,         [:ptr], :void
 
   PIXELFORMAT_RGBA32   = 0x16762004
   TEXTUREACCESS_STATIC = 0

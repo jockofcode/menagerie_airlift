@@ -23,10 +23,14 @@ shot_frame = ENV["CAPRI_SHOT_FRAME"] == nil ? 240 : ENV["CAPRI_SHOT_FRAME"].to_i
 autoplay   = ENV["CAPRI_AUTOPLAY"] != nil
 start_mission = ENV["CAPRI_MISSION"] == nil ? 0 : ENV["CAPRI_MISSION"].to_i
 debug_screen = ENV["CAPRI_SCREEN"]
+# Silence for testing in the background: CAPRI_MUTE=1 mutes every sound and
+# the music; screenshot runs (CAPRI_SHOT) are muted unless CAPRI_MUTE=0.
+muted = ENV["CAPRI_MUTE"] == "1" || (shot_path != nil && ENV["CAPRI_MUTE"] != "0")
 
 M_KEY = "m".ord
 R_KEY = "r".ord
 Q_KEY = "q".ord
+L_KEY = "l".ord
 
 # Gamepad rumble for the moments that deserve it (no-op without a pad).
 def rumble_for(controls, s)
@@ -39,20 +43,37 @@ def rumble_for(controls, s)
   end
 end
 
-def capture_window(window, path)
-  bx = IO::Buffer.new(4)
-  by = IO::Buffer.new(4)
-  ChopFFI.SDL_GetWindowPosition(window.ptr, bx, by)
-  x = bx.get_value(:s32, 0)
-  y = by.get_value(:s32, 0)
-  system("screencapture -x -R#{x},#{y},#{WINDOW_W},#{WINDOW_H} #{path}")
+# Background painting: up to BG_PAINT_MS a frame on the level art most
+# likely to be needed next -- the next mission's level during a game, then
+# the levels either side of the title screen's pick, nearest first.
+BG_PAINT_MS = 8
+
+def paint_ahead(art, game)
+  order = []
+  order.push(level_for(game.mission + 1, game.start_level)) unless game.demo
+  k = game.start_level
+  d = 1
+  while d <= LEVEL_COUNT / 2
+    order.push((k + d) % LEVEL_COUNT)
+    order.push((k - d + LEVEL_COUNT) % LEVEL_COUNT)
+    d += 1
+  end
+  i = 0
+  while i < order.length
+    unless art.ready?(order[i])
+      art.paint_some(order[i], BG_PAINT_MS)
+      return
+    end
+    i += 1
+  end
 end
 
 SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do |window, renderer|
   # Keyboard and gamepad merged into named actions (SDL::Controls).
   controls = SDL::Controls.new
   controls.clear_keys(:back)               # Back on the pad opens the pause menu, below
-  menu = SDL::PauseMenu.new                 # Esc / Start: pause with RESUME / QUIT
+  # Esc / Start: pause with RESUME / AUTOPILOT / QUIT.
+  menu = SDL::PauseMenu.new(labels: ["RESUME", "AUTOPILOT: OFF", "PANEL: ON", "QUIT"], actions: [:resume, :autopilot, :panel, :quit])
   SDL::Log.write("gamepad: #{controls.gamepad? ? controls.gamepad_name : "none"}")
   t0 = SDL::Screen.ticks
   art   = Art.new(renderer)
@@ -68,11 +89,14 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
   
   game = Game.new
   # CAPRI_LEVEL=n starts with level n picked on the title screen
-  # (0 the mountain, 1 the arctic, 2 Cascadia).
+  # (numbered as in lib/capri/levels.rb).
   if ENV["CAPRI_LEVEL"] != nil
-    n = ENV["CAPRI_LEVEL"].to_i
-    n.times { game.pick_level(1) }
+    game.set_start_level(ENV["CAPRI_LEVEL"].to_i)
   end
+  # CAPRI_AUTOPILOT=1 starts with the autopilot option on.
+  game.toggle_autopilot if ENV["CAPRI_AUTOPILOT"] == "1"
+  # CAPRI_PANEL=0 starts with Laya's panel hidden.
+  game.toggle_panel if ENV["CAPRI_PANEL"] == "0"
   if start_mission > 0 || autoplay
     game.new_game
     game.skip_to(start_mission) if start_mission > 0
@@ -96,7 +120,12 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
       if event_type == LibSDL::QUIT
         running = false
       elsif menu.open?
-        running = false if menu.handle(event_type) == :quit
+        choice = menu.handle(event_type)
+        running = false if choice == :quit
+        game.toggle_autopilot if choice == :autopilot
+        game.toggle_panel if choice == :panel
+      elsif event_type == LibSDL::EVENT_GAMEPAD_BUTTON_DOWN && SDL::Event.gamepad_button == LibSDL::GAMEPAD_BUTTON_NORTH
+        game.toggle_autopilot
       elsif event_type == LibSDL::KEYDOWN
         key = SDL::Event.key_sym
         if key == LibSDL::K_ESCAPE
@@ -105,6 +134,10 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
           running = false
         elsif key == M_KEY
           music.toggle
+        elsif key == LibSDL::K_TAB
+          game.toggle_autopilot
+        elsif key == L_KEY
+          game.toggle_panel
         elsif key == R_KEY
           game.start_demo unless game.demo
         end
@@ -120,9 +153,11 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
       game.pick_level(1) if controls.pressed?(:right)
       game.entry_move(0, 1) if controls.pressed?(:up)
       game.entry_move(0, -1) if controls.pressed?(:down)
-      game.press_fire if controls.pressed?(:fire)
-      game.set_fire(controls.held?(:fire))
-      game.press_turn if controls.pressed?(:alt)
+      unless game.ai
+        game.press_fire if controls.pressed?(:fire)
+        game.set_fire(controls.held?(:fire))
+        game.press_turn if controls.pressed?(:alt)
+      end
       if controls.pressed?(:start)
         if game.screen == :play || game.screen == :intro || game.screen == :bonus
           menu.open
@@ -134,6 +169,8 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
       menu.open if controls.pressed?(:back)
     end
     game.set_axis(controls.dir_x, controls.dir_y) unless game.ai
+    menu.labels[1] = game.autopilot ? "AUTOPILOT: ON" : "AUTOPILOT: OFF"
+    menu.labels[2] = game.panel ? "PANEL: ON" : "PANEL: OFF"
 
     now = SDL::Screen.ticks
     dt  = (now - last_tick).to_f
@@ -142,16 +179,26 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
 
     pilot.update(game, now.to_f)
     game.update(dt) unless menu.open?
+    # A level needed before its art is done is finished now, behind a
+    # loading card; otherwise a slice of the next one likely to be needed.
+    if art.ready?(LEVEL[0])
+      paint_ahead(art, game)
+    else
+      view.draw_loading(LEVEL_NAMES[LEVEL[0]])
+      art.ensure_level(LEVEL[0])
+      last_tick = SDL::Screen.ticks
+    end
+    view.shot_path = shot_path if shot_path != nil && frames + 1 == shot_frame
     view.draw(game, now.to_f, menu, pilot)
 
-    game.sounds.each { |s| sfx.play(s, now.to_f) }
+    game.sounds.each { |s| sfx.play(s, now.to_f) } unless muted
     game.sounds.each { |s| rumble_for(controls, s) }
     game.sounds.clear
     scr = game.screen
     flying = (scr == :play || scr == :intro || scr == :bonus) && !game.paused && !menu.open? && game.chopper.alive
     want_music = !game.paused && (scr == :title || scr == :results || scr == :game_over || scr == :entry)
-    music.update(dt, want_music)
-    if flying
+    music.update(dt, want_music && !muted)
+    if flying && !muted
       c = game.chopper
       level = c.landed ? 0.0 : 0.45 + (c.vx.abs / CHOP_MAX_VX) * 0.4 + (c.vy < 0.0 ? 0.15 : 0.0)
       level = 1.0 if level > 1.0
@@ -162,14 +209,7 @@ SDL::Screen.open("Capricopter", width: WINDOW_W, height: WINDOW_H, flags: 0) do 
 
     frames += 1
     if shot_path != nil && !shot_done
-      if frames == shot_frame - 40
-        ChopFFI.SDL_SetWindowPosition(window.ptr, 60, 40)
-        ChopFFI.SDL_RaiseWindow(window.ptr)
-        # Park the cursor mid-window so an auto-hiding Dock stays out of the shot.
-        ChopFFI.SDL_WarpMouseInWindow(window.ptr, WINDOW_W / 2.0, 200.0)
-      end
       if frames == shot_frame
-        capture_window(window, shot_path)
         shot_done = true
         running = false
       end

@@ -4,17 +4,18 @@
 # chopper with its rotors and shadow, particles and popups, the status
 # panel with its radar, and the screen overlays (title with high scores,
 # mission intro, chopper down, mission results, the supply drop bonus
-# round, game over, initials entry, pause). On the arctic and Cascadia
-# levels the same code draws their art sets (Art picks them by LEVEL),
-# with northern lights at night over the ice.
+# round, game over, initials entry, pause). Every level's art set is
+# drawn by the same code (Art picks it by LEVEL), with the levels' extras:
+# northern lights at night over the ice, eyes peering out of sealed
+# containers, open water, stone trolls, gum trees with drop bears, and
+# dust devils.
 class View
-  # What's next, for the results screen, by level.
-  LEVEL_TEASERS = ["THE MOUNTAIN -- GOATS, YETIS, EAGLES", "THE ARCTIC -- PENGUINS, YETIS, SEAGULLS",
-                   "CASCADIA -- MARMOTS, BIGFOOT, OWLS"]
-
   def initialize(renderer, art)
     @r = renderer
     @art = art
+    @shot_path = ""
+    @drum = -1.0          # the level picker's turn, in levels (eases toward the pick)
+    @drum_t = 0.0
     @font_hud   = SDL::Font.bundled(SDL::Fonts::VT323_NAME, 24)
     @font_val   = SDL::Font.bundled(SDL::Fonts::VT323_NAME, 34)
     @font_mid   = SDL::Font.bundled(SDL::Fonts::VT323_NAME, 32)
@@ -126,6 +127,21 @@ class View
 
   # menu: the SDL::PauseMenu, drawn last so it sits over everything.
   # pilot: the LayaPilot, whose thinking the title screen shows.
+  # CAPRI_SHOT: the frame is read back from the renderer before it is
+  # presented (so it works with the window covered or the screen locked)
+  # and saved as a PNG.
+  attr_accessor :shot_path
+
+  def capture
+    surf = ChopFFI.SDL_RenderReadPixels(@r.ptr, nil)
+    bmp = @shot_path + ".bmp"
+    ChopFFI.SDL_SaveBMP(surf, bmp)
+    ChopFFI.SDL_DestroySurface(surf)
+    system("sips -s format png #{bmp} --out #{@shot_path} >/dev/null 2>&1")
+    File.delete(bmp)
+    @shot_path = ""
+  end
+
   def draw(game, t, menu, pilot)
     @r.draw_color(0, 0, 0, 255)
     @r.clear
@@ -138,11 +154,20 @@ class View
     @lr = c255(1.0 - night * 0.62 + dusk * 0.04)
     @lg = c255(1.0 - night * 0.60 - dusk * 0.10)
     @lb = c255(1.0 - night * 0.40 - dusk * 0.08)
+    if game.light_ms > 0.0
+      # A firework bursting overhead lights everything up for a moment.
+      k = game.light_ms / LIGHT_MS * 0.55
+      @lr = c255((@lr + (255 - @lr) * k) / 255.0)
+      @lg = c255((@lg + (255 - @lg) * k) / 255.0)
+      @lb = c255((@lb + (255 - @lb) * k) / 255.0)
+    end
     draw_sky(game, t, dusk, night)
     draw_scenery(game, t, night)
     draw_ground_things(game, t)
     draw_actors(game, t)
+    draw_water(t) if lv_info.has_water?
     draw_crates(game)
+    draw_storm(game, t) if game.storm > 0.0
     draw_chopper(game, t)
     draw_particles(game)
     draw_popups(game)
@@ -153,9 +178,19 @@ class View
       @r.fill_rect(0, 0, WINDOW_W, HUD_Y)
     end
     draw_overlay(game, t)
-    draw_pilot(pilot) if game.screen == :title
+    # Laya's decisions, only with the autopilot option on: beside the high
+    # scores on the title, up in the corner while the autopilot flies.
+    if game.autopilot && game.panel
+      if game.screen == :title
+        draw_pilot(pilot, 28, 348)
+      elsif game.screen == :play && game.ai
+        draw_pilot(pilot, 28, 16)
+      end
+    end
+    draw_autopilot(game, t) if game.ai && !game.demo
     draw_hud(game, t)
     menu.draw(@r, WINDOW_W, WINDOW_H)
+    capture if @shot_path != ""
     @r.present
   end
 
@@ -166,13 +201,22 @@ class View
       @art.sky_dusk.set_alpha_mod(c255(dusk))
       @r.draw_texture(@art.sky_dusk, 0, 0)
     end
+    if lv_info.space
+      # No air: the stars are out all day, and the Earth hangs in the sky.
+      @art.stars.set_alpha_mod(255)
+      @r.draw_texture(@art.stars, (0.0 - @cam * 0.02) % WINDOW_W - WINDOW_W, 0)
+      @r.draw_texture(@art.stars, (0.0 - @cam * 0.02) % WINDOW_W, 0)
+      sprite(@art.earth, (WINDOW_W * 0.30 - @cam * 0.008).round, 150, Art::EARTH_W.to_f, Art::EARTH_W.to_f, 255, 255, 255, 255)
+    end
     if night > 0.0
       @art.sky_night.set_alpha_mod(c255(night))
       @r.draw_texture(@art.sky_night, 0, 0)
+    end
+    if night > 0.0 && lv_info.celestial
       @art.stars.set_alpha_mod(c255(night))
       @r.draw_texture(@art.stars, (0.0 - @cam * 0.02) % WINDOW_W - WINDOW_W, 0)
       @r.draw_texture(@art.stars, (0.0 - @cam * 0.02) % WINDOW_W, 0)
-      if arctic?
+      if lv_info.aurora
         # Northern lights, drifting slowly.
         @art.aurora.set_alpha_mod(c255(night * 0.9))
         ax = (0.0 - @cam * 0.03 - t * 0.004) % WINDOW_W
@@ -184,10 +228,10 @@ class View
     day = game.day
     sun_x = (WINDOW_W * 0.78 - @cam * 0.01).round
     sun_y = (110.0 + day * 520.0).round
-    if sun_y < GROUND_Y + 60
+    if sun_y < GROUND_Y + 60 && lv_info.celestial
       sprite(@art.sun, sun_x, sun_y, 180.0, 180.0, 255, 255, 255, c255(1.0 - night))
     end
-    if night > 0.0
+    if night > 0.0 && !lv_info.space && lv_info.celestial
       sprite(@art.moon, (WINDOW_W * 0.22 - @cam * 0.01).round, (420.0 - night * 300.0).round, 72.0, 72.0, 255, 255, 255, c255(night))
     end
   end
@@ -208,6 +252,7 @@ class View
     draw_tiled(far, 0.12, GROUND_Y - Art::MOUNT_FAR_H - 40, WINDOW_W, Art::MOUNT_FAR_H)
     # Clouds drift slowly on their own as well as with the camera.
     @art.cloud_spots.each do |cs|
+      break unless lv_info.clouds
       tex = @art.clouds[cs[2]]
       w = 220.0 * cs[3]
       h = 80.0 * cs[3]
@@ -253,6 +298,7 @@ class View
                  Art::BASE_TEX_W.to_f, Art::BASE_TEX_H.to_f, 0.0, false, 255)
     end
     sprite_lit(@art.pad, sx(BASE_PAD_X), GROUND_Y - 4.0 + @oy, 200.0, 14.0, 0.0, false, 255) if on_screen?(BASE_PAD_X, 120.0)
+    draw_bears(game, t) if game.bears.length > 0
     game.drifts.each do |k|
       next unless on_screen?(k[:x], 120.0)
       cy = k[:y] - DRIFT_H / 2.0 + 3.0 + @oy
@@ -263,20 +309,25 @@ class View
         else
           sprite_lit(tex, sx(k[:x]), cy, DRIFT_W, DRIFT_H, 0.0, false, 255)
         end
-        draw_stump_eyes(k, sx(k[:x]) - DRIFT_W / 2.0, cy - DRIFT_H / 2.0, t) if cascadia?
+        draw_stump_eyes(k, sx(k[:x]) - DRIFT_W / 2.0, cy - DRIFT_H / 2.0, t) if @art.eye_spots.length > 0
+        sprite_lit(@art.extra[Art::EXTRA_VINES], sx(k[:x]), cy, DRIFT_W, DRIFT_H, 0.0, false, 255) if k[:vines]
       else
         sprite_lit(@art.cave, sx(k[:x]), cy, DRIFT_W, DRIFT_H, 0.0, false, 255)
       end
     end
   end
 
-  # Marmot eyes in a sealed stump's hollow: each pair glances side to side
+  # Eyes in a sealed container (marmots in a stump, cats in a crypt...): each pair glances side to side
   # at its own pace and blinks out at random moments. Unlit, so they glint at
   # night too.
   def draw_stump_eyes(k, left, top, t)
     i = 0
-    while i < Art::STUMP_EYES.length
-      e = Art::STUMP_EYES[i]
+    spots = @art.eye_spots
+    # The texture's pixels to the drawn size.
+    kx = DRIFT_W / @art.drift.width
+    ky = DRIFT_H / @art.drift.height
+    while i < spots.length
+      e = spots[i]
       ph = k[:x] * 0.013 + i * 2.1
       look = Math.sin(t * (0.0009 + i * 0.0003) + ph) + 0.4 * Math.sin(t * 0.0023 + ph * 1.7)
       shift = look * 1.6
@@ -288,10 +339,10 @@ class View
       h = Math.sin(slot * 12.9898 + k[:x] * 0.0731 + i * 78.233) * 43758.5453
       shut = h - h.floor < 0.07
       unless shut
-        x = left + e[0] + shift
-        y = top + e[1]
+        x = left + e[0] * kx + shift
+        y = top + e[1] * ky
         sprite(@art.eye, x, y, 2.8, 2.8, 255, 255, 255, 255)
-        sprite(@art.eye, x + Art::STUMP_EYE_GAP, y, 2.8, 2.8, 255, 255, 255, 255)
+        sprite(@art.eye, x + @art.eye_gap * kx, y, 2.8, 2.8, 255, 255, 255, 255)
       end
       i += 1
     end
@@ -328,6 +379,12 @@ class View
       bob = (Math.sin(tk[:wobble])).abs * 2.0
       cy = g - Art::YETI_H / 2.0 + 2.0 - bob + @oy
       left = tk[:dir] < 0
+      if game.trolls_stone?
+        # Stone by day: no bob, no arm.
+        cy = g - Art::YETI_H / 2.0 + 2.0 + @oy
+        sprite_lit(@art.extra[Art::EXTRA_STONE_TROLL], cx, cy, Art::YETI_W.to_f, Art::YETI_H.to_f, 0.0, left, 255)
+        next
+      end
       sprite_lit(@art.yeti, cx, cy, Art::YETI_W.to_f, Art::YETI_H.to_f, 0.0, left, 255)
       if tk[:flash] > 0.0
         # Hit: a red flush over the fur.
@@ -371,15 +428,36 @@ class View
       @r.draw_texture(arm, shoulder_x - 4, shoulder_y - 5, w: Art::ARM_W, h: Art::ARM_H, angle: deg, center: [4, 5])
     end
     game.snowballs.each do |s|
-      sprite_lit(@art.snowball, sx(s[:x]), s[:y] + @oy, 16.0, 16.0, 0.0, false, 255)
+      if s[:kind] == 1
+        # A drop bear, arms and legs out.
+        sprite_lit(@art.extra[Art::EXTRA_BEAR_FALL], sx(s[:x]), s[:y] + @oy, Art::BEAR_W.to_f, Art::BEAR_H.to_f,
+                   Math.sin(s[:y] * 0.05) * 12.0, s[:vx] < 0.0, 255)
+      elsif s[:kind] == 2
+        # A lava bomb, tumbling.
+        sprite(@art.extra[Art::EXTRA_LAVA], sx(s[:x]), s[:y] + @oy, Art::LAVA_W.to_f, Art::LAVA_W.to_f, 255, 255, 255, 255)
+      elsif s[:kind] == 3
+        # A firework rocket, nose along its path.
+        deg = Math.atan2(s[:vy], s[:vx]) * 180.0 / Math::PI + 90.0
+        sprite_rot(@art.extra[Art::EXTRA_ROCKET], sx(s[:x]), s[:y] + @oy, Art::ROCKET_W.to_f, Art::ROCKET_H.to_f, deg,
+                   255, 255, 255, 255)
+      elsif lv_info.missile_aim
+        # An arrow or a firecracker, pointing where it flies.
+        deg = Math.atan2(s[:vy], s[:vx]) * 180.0 / Math::PI
+        sprite_lit(@art.snowball, sx(s[:x]), s[:y] + @oy, 16.0, 16.0, deg, false, 255)
+      else
+        sprite_lit(@art.snowball, sx(s[:x]), s[:y] + @oy, 16.0, 16.0, 0.0, false, 255)
+      end
     end
+    draw_devils(game, t) if game.devils.length > 0
+    draw_herds(game) if game.herds.length > 0
+    draw_flares(game) if game.flares.length > 0
     game.bombs.each do |b|
       deg = Math.atan2(b[:vy], b[:vx]) * 180.0 / Math::PI - 90.0
-      sprite_lit(@art.bomb, sx(b[:x]), b[:y] + @oy, 12.0, 18.0, deg, false, 255)
+      sprite_lit(@art.bomb, sx(b[:x]), b[:y] + @oy, lv_info.bomb_w, lv_info.bomb_h, deg, false, 255)
     end
     game.bullets.each do |b|
       deg = Math.atan2(b[:vy], b[:vx]) * 180.0 / Math::PI
-      sprite_rot(@art.bullet, sx(b[:x]), b[:y] + @oy, 16.0, 6.0, deg, 255, 255, 255, 255)
+      sprite_rot(@art.bullet, sx(b[:x]), b[:y] + @oy, lv_info.shot_w, lv_info.shot_h, deg, 255, 255, 255, 255)
     end
     game.eagles.each do |j|
       next unless on_screen?(j[:x], 100.0)
@@ -396,6 +474,136 @@ class View
       frame = Math.sin(d[:flap]) > 0.0 ? 0 : 1
       sprite_lit(@art.raven[frame], sx(d[:x]), d[:y] + @oy, Art::RAVEN_W.to_f, Art::RAVEN_H.to_f, 0.0, d[:dir] < 0.0, 255)
     end
+  end
+
+  # Gum trees on the mesas, each with its drop bear: up on the branch
+  # (peering about), sitting where it landed, or climbing back up.
+  def draw_bears(game, t)
+    tree = @art.extra[Art::EXTRA_GUM_TREE]
+    sit = @art.extra[Art::EXTRA_BEAR_SIT]
+    game.bears.each do |br|
+      next unless on_screen?(br[:tree_x], 120.0)
+      g = ground_y(br[:tree_x])
+      sprite_lit(tree, sx(br[:tree_x]), g - Art::GUM_H / 2.0 + 4.0 + @oy, Art::GUM_W.to_f, Art::GUM_H.to_f, 0.0, false, 255)
+    end
+    game.bears.each do |br|
+      next unless on_screen?(br[:x], 60.0)
+      st = br[:state]
+      next if st == :falling || st == :gone
+      look = Math.sin(br[:look]) < 0.0
+      sprite_lit(sit, sx(br[:x]), br[:y] + @oy, Art::BEAR_W.to_f, Art::BEAR_H.to_f, 0.0, look, 255)
+    end
+  end
+
+  # A stampeding herd: two frames of the running herd, fading as it wheels
+  # away at the fence.
+  def draw_herds(game)
+    game.herds.each do |h|
+      next unless on_screen?(h[:x], Art::HERD_W.to_f)
+      frame = (h[:phase] * 0.5).to_i % 2
+      g = ground_y(h[:x])
+      a = 1.0 - h[:out] / HERD_FADE_MS
+      a = 0.0 if a < 0.0
+      bob = frame == 0 ? 0.0 : 2.0
+      sprite_lit(@art.extra[Art::EXTRA_HERD + frame], sx(h[:x]), g - Art::HERD_H / 2.0 + 4.0 - bob + @oy,
+                 Art::HERD_W.to_f, Art::HERD_H.to_f, 0.0, false, c255(a))
+    end
+  end
+
+  # Firework bursts: the burst texture, tinted, opening out and fading.
+  def draw_flares(game)
+    tex = @art.extra[Art::EXTRA_BURST]
+    game.flares.each do |f|
+      k = 1.0 - f[:ms] / 1100.0
+      w = Art::BURST_W * (0.35 + 0.85 * Math.sqrt(k))
+      a = k < 0.15 ? 1.0 : 1.0 - (k - 0.15) / 0.85
+      sprite(tex, sx(f[:x]), f[:y] + @oy, w, w, c255(f[:r]), c255(f[:g]), c255(f[:b]), c255(a))
+    end
+  end
+
+  # A Martian dust storm: blowing dust over everything but the ship.
+  def draw_storm(game, t)
+    k = game.storm
+    @r.draw_color(c255(0.62 * @lr / 255.0), c255(0.36 * @lg / 255.0), c255(0.22 * @lb / 255.0), c255(k * 0.78))
+    @r.fill_rect(0, 0, WINDOW_W, HUD_Y)
+    tex = @art.extra[Art::EXTRA_STORM]
+    tex.set_color_mod(@lr, @lg, @lb)
+    tex.set_alpha_mod(c255(k))
+    i = 0
+    while i < 3
+      off = ((t * (0.35 + i * 0.22) + @cam * (0.6 + i * 0.3)) % WINDOW_W).round
+      y = 60 + i * 170
+      @r.draw_texture(tex, 0 - off, y, w: WINDOW_W, h: Art::STORM_H)
+      @r.draw_texture(tex, WINDOW_W - off, y, w: WINDOW_W, h: Art::STORM_H)
+      i += 1
+    end
+  end
+
+  # Dust devils: two frames swapped and mirrored as they spin, fading in
+  # and out with their strength.
+  def draw_devils(game, t)
+    game.devils.each do |d|
+      next unless on_screen?(d[:x], 80.0)
+      g = ground_y(d[:x])
+      k = d[:grow]
+      h = Art::DEVIL_TEX_H * (0.4 + 0.6 * k)
+      w = Art::DEVIL_TEX_W * (0.7 + 0.3 * k)
+      frame = (d[:phase] * 0.5).to_i % 2
+      tex = @art.extra[Art::EXTRA_DEVIL + frame]
+      lean = Math.sin(d[:phase] * 0.07) * 4.0
+      sprite_lit(tex, sx(d[:x]), g - h / 2.0 + 6.0 + @oy, w, h, lean, (d[:phase] * 0.25).to_i % 2 == 0, c255(0.85 * k))
+    end
+  end
+
+  # Open water: a still pool's surface over whatever wades in it, the sky's
+  # glare across the top fading down into the dark of the deep, a bright
+  # rim at the surface and slow glinting ripples.
+  def draw_water(t)
+    info = lv_info
+    top = info.water_top
+    deep = info.water_deep
+    info.water.each do |w|
+      next unless w[1] >= @cam - 20.0 && w[0] <= @cam + WINDOW_W + 20.0
+      x0 = sx(w[0]).to_i
+      x1 = sx(w[1]).to_i
+      y0 = (w[2] + @oy).round
+      x = x0
+      while x < x1
+        wx = w[0] + (x - x0)
+        d = (ground_y(wx) - w[2]).round
+        if d > 0
+          # Glare in the top few pixels, then down to the deep color.
+          yy = 0
+          while yy <= d
+            band = yy < 3 ? 3 : (yy < 9 ? 6 : d - yy + 1)
+            k = yy / 30.0
+            k = 1.0 if k > 1.0
+            g = yy < 3 ? 0.22 : (yy < 9 ? 0.10 : 0.0)
+            @r.draw_color(c255((top[0] + (deep[0] - top[0]) * k + g) * @lr / 255.0),
+                          c255((top[1] + (deep[1] - top[1]) * k + g) * @lg / 255.0),
+                          c255((top[2] + (deep[2] - top[2]) * k + g) * @lb / 255.0), yy < 3 ? 235 : 205)
+            @r.fill_rect(x, y0 + yy, 2, band)
+            yy += band
+          end
+          @r.draw_color(c255(0.92 * @lr / 255.0), c255(0.96 * @lg / 255.0), c255(1.0 * @lb / 255.0), 150)
+          @r.fill_rect(x, y0, 2, 1)
+          sh = Math.sin(wx * 0.09 + t * 0.003) + Math.sin(wx * 0.031 - t * 0.0021)
+          if sh > 1.3 && d > 6
+            @r.draw_color(255, 255, 255, 90)
+            @r.fill_rect(x, y0 + 4 + ((wx * 7.0).to_i % 5), 2, 1)
+          end
+        end
+        x += 2
+      end
+    end
+  end
+
+  # While a level's art is painted for the first time.
+  def draw_loading(name)
+    @r.draw_color(8, 10, 18, 255)
+    @r.clear
+    shadowed(@font_mid, "FLYING TO THE #{name}...", WINDOW_W / 2, WINDOW_H / 2 - 20, 200, 210, 230, :center)
+    @r.present
   end
 
   def draw_crates(game)
@@ -434,6 +642,7 @@ class View
     sw = 100.0 * (1.0 - alt * 0.5)
     sprite(@art.shadow, cx, g + 4.0 + @oy, sw, 20.0 * (1.0 - alt * 0.5), 255, 255, 255, c255(0.9 - alt * 0.6))
     front = c.facing == :front
+    draw_flames(game, c, cx, cy, front, t) if lv_info.ship
     k = c.turn_ms > 0.0 ? 1.0 - c.turn_ms / CHOP_TURN_MS : 1.0
     # While turning, the old facing shrinks away as the new one grows.
     if c.turn_ms > 0.0 && k < 0.5
@@ -447,6 +656,35 @@ class View
       tex = front ? @art.chopper_front : @art.chopper_side
       sprite_lit(tex, cx, cy, w, Art::CHOP_H.to_f, c.tilt, c.facing == :left, 255)
     end
+    draw_rotors(c, cx, cy, front) unless lv_info.ship
+    # Passengers: a little counter above the cabin while loaded.
+    if c.aboard > 0
+      text(@font_pop, "#{c.aboard}", cx, cy - 52, 255, 255, 255, 220, :center)
+    end
+  end
+
+  # A spaceship's engines, behind it: the lift jet under the hull, burning
+  # harder climbing and fading on the ground, and in side view the main
+  # engine at the stern while it thrusts along.
+  def draw_flames(game, c, cx, cy, front, t)
+    return if c.landed
+    flick = 0.85 + 0.15 * Math.sin(t * 0.09) + 0.08 * Math.sin(t * 0.23)
+    lift = (c.vy < -0.3 ? 1.0 : 0.6) * flick
+    tilt_r = c.tilt * Math::PI / 180.0
+    fx = cx - 20.0 * Math.sin(tilt_r)
+    fy = cy + 20.0 * Math.cos(tilt_r) + Art::FLAME_H * lift / 2.0 - 4.0
+    sprite_rot(@art.flame, fx, fy, Art::FLAME_W * 0.8, Art::FLAME_H * lift, c.tilt, 255, 255, 255, 230)
+    return if front || c.vx.abs < 0.6
+    d = c.facing == :left ? -1.0 : 1.0
+    push = (c.vx.abs / CHOP_MAX_VX) * flick
+    push = 1.0 if push > 1.0
+    len = Art::FLAME_H * (0.4 + 0.8 * push)
+    ex = cx - d * (40.0 + len / 2.0) * Math.cos(tilt_r)
+    ey = cy - 2.0 * Math.cos(tilt_r) - d * (40.0 + len / 2.0) * Math.sin(tilt_r)
+    sprite_rot(@art.flame, ex, ey, Art::FLAME_W * 0.7, len, c.tilt + d * 90.0, 255, 255, 255, 230)
+  end
+
+  def draw_rotors(c, cx, cy, front)
     # Main rotor: a blur disc plus a sweeping blade.
     ry = cy - 20
     rw = Art::ROTOR_W.to_f
@@ -460,10 +698,6 @@ class View
       tx = cx - d * 36.0 * Math.cos(tilt_r) + 10.0 * Math.sin(tilt_r)
       ty = cy - 10.0 * Math.cos(tilt_r) - d * 36.0 * Math.sin(tilt_r)
       sprite_rot(@art.tail_rotor, tx, ty, 18.0, 18.0, c.rotor * 360.0 / TWO_PI * 2.0, @lr, @lg, @lb, 220)
-    end
-    # Passengers: a little counter above the cabin while loaded.
-    if c.aboard > 0
-      text(@font_pop, "#{c.aboard}", cx, cy - 52, 255, 255, 255, 220, :center)
     end
   end
 
@@ -588,32 +822,29 @@ class View
       a = (a * 255.0).to_i
       text(@font_big, "MISSION #{game.mission}", cx + 3, 183, 0, 0, 0, a * 2 / 3, :center)
       text(@font_big, "MISSION #{game.mission}", cx, 180, 140, 220, 255, a, :center)
-      line = "#{GOATS_TOTAL} GOATS SNOWED IN ON #{ledges.length} LEDGES"
-      line = "#{GOATS_TOTAL} PENGUINS ICED IN ON #{ledges.length} ICE SHELVES" if arctic?
-      line = "#{GOATS_TOTAL} MARMOTS TRAPPED IN #{ledges.length} HOLLOW STUMPS" if cascadia?
+      line = "#{GOATS_TOTAL} " + lv_info.intro
       text(@font_mid, line, cx + 2, 252, 0, 0, 0, a * 2 / 3, :center)
       text(@font_mid, line, cx, 250, 255, 255, 255, a, :center)
-      text(@font_hud, level_text("BRING THEM DOWN TO THE BARN", "BLAST OPEN THE IGLOOS AND FLY THEM TO THE STATION", "BEWARE OF BIGFOOT -- FLY THEM TO THE RANGER STATION"), cx, 310, 255, 220, 120, a, :center) if blink(t, 400.0)
+      text(@font_hud, lv_info.hint, cx, 310, 255, 220, 120, a, :center) if blink(t, 400.0)
     elsif scr == :dead
       if game.screen_ms > 300.0
         shadowed(@font_big, "CHOPPER DOWN", cx, 180, 255, 110, 100, :center)
-        shadowed(@font_mid, game.lives > 1 ? "#{game.lives - 1} CHOPPERS LEFT" : "LAST CHOPPER LOST", cx, 250, 255, 255, 255, :center) unless game.demo
+        shadowed(@font_mid, game.lives > 1 ? "#{game.lives - 1} #{lv_info.craft}S LEFT" : "LAST #{lv_info.craft} LOST", cx, 250, 255, 255, 255, :center) unless game.demo
       end
     elsif scr == :results
       dim_field(110)
-      shadowed(@font_big, game.perfect ? level_text("EVERY GOAT HOME!", "EVERY PENGUIN HOME!", "EVERY MARMOT HOME!") : "MISSION COMPLETE", cx, 120, 255, 230, 120, :center)
+      shadowed(@font_big, game.perfect ? lv_info.perfect : "MISSION COMPLETE", cx, 120, 255, 230, 120, :center)
       shadowed(@font_mid, "RESCUED  #{game.mission_saved}", cx - 120, 220, 140, 240, 160, :center)
       shadowed(@font_mid, "LOST  #{game.mission_lost}", cx + 120, 220, 255, 130, 120, :center)
       shadowed(@font_mid, "BONUS  #{num(game.mission_bonus)}", cx, 290, 255, 255, 255, :center)
-      shadowed(@font_hud, "NEXT MISSION: " + LEVEL_TEASERS[level_for(game.mission + 1, game.start_level)], cx, 360, 200, 200, 210, :center) if game.screen_ms > 1500.0
+      shadowed(@font_hud, "NEXT MISSION: " + LEVELS[level_for(game.mission + 1, game.start_level)].teaser, cx, 360, 200, 200, 210, :center) if game.screen_ms > 1500.0
     elsif scr == :bonus
       if game.screen_ms < CRATE_INTRO_MS + 400.0
         k = game.screen_ms / (CRATE_INTRO_MS + 400.0)
         a = k < 0.12 ? k / 0.12 : (k > 0.8 ? (1.0 - k) / 0.2 : 1.0)
         a = (a * 255.0).to_i
-        title = level_text("SUPPLY DROP", "FISH DROP", "BERRY DROP")
-        line = level_text("CATCH THE CRATES BEFORE THEY HIT THE SNOW", "CATCH THE FISH BEFORE THEY HIT THE ICE",
-                          "CATCH THE HUCKLEBERRIES BEFORE THEY HIT THE GROUND")
+        title = lv_info.bonus_title
+        line = lv_info.bonus_line
         text(@font_big, title, cx + 3, 183, 0, 0, 0, a * 2 / 3, :center)
         text(@font_big, title, cx, 180, 255, 220, 120, a, :center)
         text(@font_mid, line, cx + 2, 252, 0, 0, 0, a * 2 / 3, :center)
@@ -623,13 +854,13 @@ class View
       if game.crates_done?
         dim_field(110)
         all = game.crates_caught == CRATE_COUNT
-        head = all ? level_text("ALL CRATES CAUGHT", "ALL FISH CAUGHT", "ALL BERRIES CAUGHT") : level_text("SUPPLY DROP OVER", "FISH DROP OVER", "BERRY DROP OVER")
+        head = all ? lv_info.bonus_all : lv_info.bonus_over
         shadowed(@font_big, head, cx, 140, 255, 230, 120, :center)
         shadowed(@font_mid, "CAUGHT  #{game.crates_caught}", cx - 120, 230, 140, 240, 160, :center)
         shadowed(@font_mid, "SMASHED  #{game.crates_missed}", cx + 120, 230, 255, 130, 120, :center)
         shadowed(@font_mid, "BONUS  #{num(game.crate_score)}", cx, 300, 255, 255, 255, :center)
       elsif game.screen_ms > CRATE_INTRO_MS
-        shadowed(@font_mid, "CRATES  #{game.crates_caught} / #{CRATE_COUNT}", 24, 16, 255, 230, 140, :left)
+        shadowed(@font_mid, "#{lv_info.bonus_item}  #{game.crates_caught} / #{CRATE_COUNT}", 24, 16, 255, 230, 140, :left)
       end
     elsif scr == :game_over
       dim_field(120)
@@ -674,44 +905,128 @@ class View
     shadowed(@font_big, "PRESS ENTER", cx, 238, 255, 255, 255, :center) if blink(t, 900.0)
     draw_level_pick(game, cx, 302, t)
     draw_scores(game, cx, 358, t)
-    line = level_text("BLAST THE SNOW DRIFTS, LAND ON THE LEDGE, FLY THE GOATS HOME",
-                      "BLAST OPEN THE IGLOOS, LAND ON THE ICE SHELF, FLY THE PENGUINS HOME",
-                      "BLAST OPEN THE STUMPS, LAND IN THE CLEARING, FLY THE MARMOTS HOME")
-    shadowed(@font_hud, line, cx, 532, 255, 220, 120, :center)
-    shadowed(@font_hud, "ARROWS / WASD FLY     SPACE FIRE     X FACE THE CAMERA FOR CHARGES", cx, 558, 200, 200, 210, :center)
+    shadowed(@font_hud, lv_info.how, cx, 532, 255, 220, 120, :center)
+    shadowed(@font_hud, "ARROWS / WASD FLY     SPACE FIRE     X FACE THE CAMERA     TAB AUTOPILOT " + (game.autopilot ? "ON" : "OFF") + (game.autopilot ? "     L PANEL " + (game.panel ? "ON" : "OFF") : ""), cx, 558, 200, 200, 210, :center)
   end
 
-  # The level picker: every level's name, the picked one lit and
-  # bracketed, the others dim; left and right step through them.
+  # The level picker: a drum turning on a horizontal axle, every level's
+  # name round its rim (DRUM_STEP degrees apart, so with many levels only
+  # the nearest few are on the visible face). It eases round the short
+  # way to the picked level; names shrink and fade as they turn away
+  # toward the drum's edges, and the picked one sits lit in the window at
+  # the front. Seasonal levels out of season are noted below it.
+  DRUM_R = 330.0
+  DRUM_H = 40
+  DRUM_STEP = 32.0
+
   def draw_level_pick(game, cx, y, t)
     k = game.start_level
-    @r.draw_color(0, 0, 0, 110)
-    @r.fill_rect(cx - 330, y + 1, 660, 34)
+    dt = t - @drum_t
+    @drum_t = t
+    if @drum < 0.0 || dt > 500.0
+      @drum = k.to_f
+    else
+      d = k - @drum
+      d -= LEVEL_COUNT while d > LEVEL_COUNT / 2.0
+      d += LEVEL_COUNT while d < -LEVEL_COUNT / 2.0
+      @drum += d * (1.0 - Math.exp(-dt / 70.0))
+      @drum += LEVEL_COUNT while @drum < 0.0
+      @drum -= LEVEL_COUNT while @drum >= LEVEL_COUNT
+    end
+    top = y - 2
+    # The drum: shaded like a cylinder, brightest at the front.
+    px = -DRUM_R.to_i
+    while px < DRUM_R
+      a = Math.asin((px + 2.0) / DRUM_R)
+      f = Math.cos(a)
+      @r.draw_color((14 + 46 * f).to_i, (16 + 52 * f).to_i, (24 + 66 * f).to_i, 225)
+      @r.fill_rect(cx + px, top, 4, DRUM_H)
+      px += 4
+    end
+    # Ridges between the names, turning with it.
     i = 0
     while i < LEVEL_COUNT
-      x = cx + (i - 1) * 215
-      if i == k
-        shadowed(@font_mid, "< #{LEVEL_NAMES[i]} >", x, y, 140, 220, 255, :center)
-      else
-        shadowed(@font_mid, LEVEL_NAMES[i], x, y, 120, 125, 140, :center)
+      ang = drum_angle(i + 0.5)
+      if ang.abs < 84.0
+        x = cx + DRUM_R * Math.sin(ang * Math::PI / 180.0)
+        f = Math.cos(ang * Math::PI / 180.0)
+        @r.draw_color(6, 8, 12, (150 * f).to_i)
+        @r.fill_rect(x.round - 1, top + 2, 2, DRUM_H - 4)
+        @r.draw_color(140, 150, 170, (70 * f).to_i)
+        @r.fill_rect(x.round + 1, top + 2, 1, DRUM_H - 4)
       end
       i += 1
     end
-    text(@font_pop, "LEFT / RIGHT PICKS THE FIRST LEVEL", cx, y + 37, 200, 200, 210, 255, :center)
+    # The names, back ones first.
+    [4, 3, 2, 1, 0].each do |ring|
+      i = 0
+      while i < LEVEL_COUNT
+        ang = drum_angle(i.to_f)
+        band = (ang.abs / DRUM_STEP + 0.5).to_i
+        if band == ring && ang.abs < 84.0
+          rad = ang * Math::PI / 180.0
+          x = (cx + DRUM_R * Math.sin(rad)).round
+          f = Math.cos(rad)
+          a = (255.0 * f * f).to_i
+          font = f > 0.93 ? @font_mid : (f > 0.6 ? @font_hud : @font_pop)
+          lit = i == k && ang.abs < DRUM_STEP / 2.0
+          ty = top + (DRUM_H - (f > 0.93 ? 32 : (f > 0.6 ? 24 : 20))) / 2 - 3
+          text(font, LEVEL_NAMES[i], x + 2, ty + 2, 0, 0, 0, a / 2, :center)
+          if lit
+            text(font, LEVEL_NAMES[i], x, ty, 140, 220, 255, a, :center)
+          else
+            text(font, LEVEL_NAMES[i], x, ty, (110 + 90 * f).to_i, (115 + 90 * f).to_i, (130 + 90 * f).to_i, a, :center)
+          end
+        end
+        i += 1
+      end
+    end
+    # The curve turning away: the edges darken over the names, so the far
+    # ones roll out of sight rather than stop at the end.
+    px = -DRUM_R.to_i
+    while px < DRUM_R
+      f = Math.cos(Math.asin((px + 2.0) / DRUM_R))
+      if f < 0.75
+        fade = (0.75 - f) / 0.75
+        @r.draw_color(10, 12, 18, (255.0 * fade ** 0.8).to_i)
+        @r.fill_rect(cx + px, top, 4, DRUM_H)
+      end
+      px += 4
+    end
+    # The rims, and the window at the front with its pointers.
+    @r.draw_color(150, 160, 180, 200)
+    @r.fill_rect(cx - DRUM_R.to_i, top - 2, (DRUM_R * 2).to_i, 2)
+    @r.fill_rect(cx - DRUM_R.to_i, top + DRUM_H, (DRUM_R * 2).to_i, 2)
+    w = 112
+    @r.draw_color(140, 220, 255, 200)
+    @r.fill_rect(cx - w, top - 4, 2, DRUM_H + 8)
+    @r.fill_rect(cx + w - 2, top - 4, 2, DRUM_H + 8)
+    text(@font_mid, "<", cx - DRUM_R.to_i - 20, top + 1, 140, 220, 255, blink(t, 700.0) ? 255 : 150, :center)
+    text(@font_mid, ">", cx + DRUM_R.to_i + 20, top + 1, 140, 220, 255, blink(t, 700.0) ? 255 : 150, :center)
+    note = "LEFT / RIGHT TURNS THE DRUM TO PICK THE FIRST LEVEL"
+    note = "#{LEVEL_NAMES[k]} IS IN SEASON #{season_when(LEVELS[k].season)} -- YOURS JUST THIS ONCE" unless IN_SEASON[k]
+    text(@font_pop, note, cx, top + DRUM_H + 3, 200, 200, 210, 255, :center)
   end
 
-  # The line for the current level: the mountain's, the arctic's or Cascadia's.
-  def level_text(mountain, ice, forest)
-    return ice if arctic?
-    return forest if cascadia?
-    mountain
+  # Where level position p sits round the drum, in degrees from the front
+  # (negative is to the left): the levels wrap round, the nearest way.
+  def drum_angle(p)
+    d = p - @drum
+    d -= LEVEL_COUNT while d > LEVEL_COUNT / 2.0
+    d += LEVEL_COUNT while d < -LEVEL_COUNT / 2.0
+    d * DRUM_STEP
   end
 
-  # Beside the high scores: who is flying the demo, and Laya's last call
-  # (one bar per goal, the goal being flown lit).
-  def draw_pilot(pilot)
-    x = 28
-    y = 348
+  # The autopilot at work: a lit tag at the top of the field.
+  def draw_autopilot(game, t)
+    return unless game.screen == :play || game.screen == :intro || game.screen == :bonus
+    a = blink(t, 900.0) ? 255 : 150
+    text(@font_hud, "AUTOPILOT  (TAB)", WINDOW_W - 24, 16, 140, 220, 255, a, :right)
+  end
+
+  # Who is flying, and Laya's last call (one bar per goal, the goal being
+  # flown lit), with its box's top left at (x, y).
+  def draw_pilot(pilot, x, y)
     @r.draw_color(0, 0, 0, 120)
     @r.fill_rect(x - 12, y - 8, 290, 170)
     lit = pilot.laya?

@@ -5,13 +5,10 @@
 # floor at GROUND_Y. The mountain itself is a heightfield (ground_y) with
 # four flat ledges where the goats are stranded.
 #
-# Missions cycle through three levels on the same layout, starting from
-# the one picked on the title screen: the goat rescue on the mountain; a
-# penguin rescue on the arctic ice (igloos for the snow caves, seagulls for
-# eagles); and a marmot rescue in Cascadia's old-growth forest (hollow
-# stumps, Bigfoot throwing pinecones for the yetis, owls for eagles). The
-# rules are shared; the level (LEVEL[0], 0 = the mountain, 1 = the arctic,
-# 2 = Cascadia) picks the terrain, the ledges and the art.
+# Missions cycle through the levels (lib/capri/levels.rb) on the same
+# layout, starting from the one picked on the title screen. The rules are
+# shared; the level (LEVEL[0]) picks the terrain, the art, the words and
+# each level's twist.
 
 WINDOW_W = 1024
 WINDOW_H = 768
@@ -124,14 +121,9 @@ def build_terrain_table(pts)
   table
 end
 
-TERRAIN_TABLES = [build_terrain_table(MOUNTAIN_PTS), build_terrain_table(ARCTIC_PTS), build_terrain_table(CASCADIA_PTS)]
-LEDGE_SETS = [MOUNTAIN_LEDGES, ARCTIC_LEDGES, CASCADIA_LEDGES]
-
-# The level the world is on: 0 the mountain, 1 the arctic, 2 Cascadia.
+# The level the world is on (LV_MOUNTAIN, LV_ARCTIC, ...).
 # Mutable so the game can switch it per mission and the art can paint all.
 LEVEL = [0]
-LEVEL_COUNT = 3
-LEVEL_NAMES = ["MOUNTAIN", "ARCTIC", "CASCADIA"]
 
 def set_level(k)
   LEVEL[0] = k
@@ -145,10 +137,17 @@ def cascadia?
   LEVEL[0] == 2
 end
 
-# Missions cycle through the levels, starting from the one picked on the
-# title screen.
+# Missions cycle through the levels in season, starting from the one
+# picked on the title screen (which may be out of season).
 def level_for(mission, start)
-  (start + mission - 1) % LEVEL_COUNT
+  k = start
+  n = mission - 1
+  while n > 0
+    k = (k + 1) % LEVEL_COUNT
+    k = (k + 1) % LEVEL_COUNT while !IN_SEASON[k]
+    n -= 1
+  end
+  k
 end
 
 def ledges
@@ -167,18 +166,37 @@ def ground_y(x)
   table[i] + (table[i + 1] - table[i]) * k
 end
 
-# The highest ground (smallest y) between two world x positions.
+# The surface of open water at world x, or a long way down if there's none.
+def water_y(x)
+  w = LEVELS[LEVEL[0]].water
+  i = 0
+  while i < w.length
+    return w[i][2] if x >= w[i][0] && x <= w[i][1]
+    i += 1
+  end
+  100000.0
+end
+
+# What the chopper meets coming down at world x: the ground, or the water
+# over it.
+def solid_y(x)
+  g = ground_y(x)
+  w = water_y(x)
+  w < g ? w : g
+end
+
+# The highest ground or water (smallest y) between two world x positions.
 def ground_top(x0, x1)
   lo = x0 < x1 ? x0 : x1
   hi = x0 < x1 ? x1 : x0
-  best = ground_y(lo)
+  best = solid_y(lo)
   x = lo
   while x < hi
-    g = ground_y(x)
+    g = solid_y(x)
     best = g if g < best
     x += 8.0
   end
-  g = ground_y(hi)
+  g = solid_y(hi)
   best = g if g < best
   best
 end
@@ -253,9 +271,68 @@ EAGLE_DIVE      = 1.7           # top vertical speed once an eagle has picked it
 EAGLE_FIRST_MS  = 20000.0
 EAGLE_GAP_MS    = 16000.0
 EAGLE_GAP_MIN_MS = 7000.0
+EAGLE_HOME_GRACE_MS = 4000.0   # after the chopper crosses back out past the fence, before a bird or drone sets out
 RAVEN_SPEED     = 2.1
-RAVEN_FROM_MISSION = 2          # ravens appear from this mission on
+RAVEN_FROM_LAP  = 2             # ravens appear from this lap of the levels on (see Game#lap)
 RAVEN_GAP_MS    = 22000.0
+
+# ---- Level twists (lib/capri/levels.rb) ----
+TROLL_WAKE_DAY   = 0.35         # fjord trolls are stone until the day is this far along
+TROLL_NIGHT_FIRE = 0.8          # and throw this much more often once awake
+BEAR_TREE_OFF    = 330.0        # a gum tree in from a ledge's left end (and one near its right)
+BEAR_PERCH       = 92.0         # a drop bear's branch, above the ground
+BEAR_REACH       = 70.0         # how near under its branch a chopper must come
+BEAR_CLIMB_MS    = 2500.0       # a bear that missed sits a while before climbing back
+AI_YETI_CLEAR    = 60.0         # the AI charges a yeti from this far above its throwing height
+AI_BEAR_RANGE    = 260.0        # the AI shoots a bear this near where it means to land
+AI_BEAR_STAND_OFF = 170.0       # from this far off to the side
+AI_BEAR_TRY_MS   = 8000.0       # and gives up on one after this long (it lands clear of the tree anyway)
+DEVIL_FIRST_MS   = 9000.0
+DEVIL_GAP_MS     = 12000.0
+DEVIL_MAX        = 2
+DEVIL_LIFE_MS    = 16000.0
+DEVIL_SPEED      = 0.9
+DEVIL_HALF_W     = 44.0
+DEVIL_H          = 260.0        # how high above the ground a dust devil reaches
+DEVIL_SHOVE      = 0.22         # px/step^2 of sideways shove at its heart
+DEVIL_LIFT       = 0.10
+# The volcano's vents (in the notches between its ledges): after a
+# tremor, the one nearest the chopper throws lava bombs.
+VOLCANO_VENTS    = [-3438.0, -2498.0, -1567.0, -670.0]
+VENT_FIRST_MS    = 12000.0
+VENT_GAP_MS      = 11000.0      # between eruptions (less each lap, down to VENT_GAP_MIN_MS)
+VENT_GAP_MIN_MS  = 6000.0
+VENT_WARN_MS     = 1400.0       # the ground shakes this long before a vent blows
+VENT_REACH       = 900.0        # only a vent this near the chopper erupts
+LAVA_BOMBS       = 2            # per eruption (one more each lap, up to 4)
+# The Himalaya's thin air: above THIN_AIR_Y the lift fades, down to
+# THIN_AIR_LIFT of its usual strength at the ceiling.
+THIN_AIR_Y       = 260.0
+THIN_AIR_LIFT    = 0.5
+# The savanna's stampedes: a herd sets off from behind the chopper and
+# runs along the ground toward the fence.
+HERD_FIRST_MS    = 18000.0
+HERD_GAP_MS      = 30000.0      # less each lap, down to HERD_GAP_MIN_MS
+HERD_GAP_MIN_MS  = 16000.0
+HERD_SPEED       = 3.4
+HERD_HALF_W      = 70.0
+HERD_TALL        = 46.0         # a chopper's skids lower than this over the ground are hit
+HERD_START_OFF   = 760.0        # how far behind the chopper a herd sets off
+HERD_STOP_X      = FENCE_X - 90.0
+HERD_FADE_MS     = 900.0
+AI_HERD_LOOK     = 1100.0       # the AI gets up off the ground with a herd this far behind
+# Mars' dust storms.
+STORM_FIRST_MS   = 25000.0
+STORM_GAP_MS     = 32000.0
+STORM_LEN_MS     = 14000.0      # longer each lap
+STORM_RAMP_MS    = 2500.0
+# Cupid's arrows stun the chopper for this long.
+STUN_MS          = 1600.0
+# Fourth of July fireworks.
+ROCKET_FIRST_MS  = 5000.0
+ROCKET_GAP_MS    = 3200.0       # on average, less each lap
+ROCKET_VY        = 5.4          # launch speed up (and up to 1.2 more)
+LIGHT_MS         = 700.0        # how long a burst lights up the night
 
 # ---- Flow and scoring ----
 LIVES_START        = 3
@@ -273,6 +350,7 @@ SCORE_DRIFT     = 150
 SCORE_YETI      = 500
 SCORE_EAGLE     = 300
 SCORE_RAVEN     = 400
+SCORE_BEAR      = 200           # a drop bear shot out of its tree
 SCORE_MISSION_PER_SAVED = 100
 SCORE_PERFECT   = 5000
 
@@ -300,3 +378,5 @@ SCORES_PATH = (ENV["HOME"] || "/tmp") + "/.capricopter_scores"
 # Gun-run geometry: keep AI_STAND_OFF from a yeti, outside its throwing
 # range (Game#ai_gun_alt works out the height to fire from).
 AI_STAND_OFF = 570.0
+
+require_relative "levels"
