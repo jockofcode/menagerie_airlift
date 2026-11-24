@@ -3,7 +3,7 @@
 /build/
 spin.lock
 
-# Stray captures from CAPRI_SHOT or make_icon.rb run outside build/
+# Stray captures from AIRLIFT_SHOT or make_icon.rb run outside build/
 # (the README screenshot and app icons under assets/ stay tracked)
 /*.png
 /*.tga

@@ -3,8 +3,8 @@
 # the world, every goat is always accounted for, and some actually
 # get rescued. Run with: spinel test/sim.rb -o build/sim && ./build/sim
 # (SEED=n flies a different repeatable run).
-require_relative "../lib/capri/config"
-require_relative "../lib/capri/game"
+require_relative "../lib/airlift/config"
+require_relative "../lib/airlift/game"
 
 def finite?(v)
   v == v && v.abs < 1.0e9
@@ -12,7 +12,7 @@ end
 
 game = Game.new
 game.reseed(ENV["SEED"].to_i) if ENV["SEED"] != nil
-# LEVEL=n picks level n (lib/capri/levels.rb) as the first, as on the
+# LEVEL=n picks level n (lib/airlift/levels.rb) as the first, as on the
 # title screen.
 if ENV["LEVEL"] != nil
   game.set_start_level(ENV["LEVEL"].to_i)

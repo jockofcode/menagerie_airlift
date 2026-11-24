@@ -1,17 +1,19 @@
-# Capricopter
+# Menagerie Airlift
 
-![Capricopter](assets/screenshots/Capricopter.png)
+![Menagerie Airlift](assets/screenshots/Menagerie-Airlift.png)
 
-A side-scrolling mountain-rescue helicopter game, a goat-flavoured fork of
-[Choplifter](../choplifter) built with [Spinel](https://github.com/matz/spinel) and
-[sdl](https://github.com/jockofcode/sdl). All artwork and sound is generated procedurally at
-startup; the only asset file is the app icon, which is painted by the same code.
+A side-scrolling animal-rescue game, a fork of [Choplifter](../choplifter) built with
+[Spinel](https://github.com/matz/spinel) and [sdl](https://github.com/jockofcode/sdl). All artwork
+and sound is generated procedurally at startup; the only asset file is the app icon, which is
+painted by the same code. It was called Capricopter while it was only about goats.
 
-A blizzard has stranded sixty-four mountain goats on four ledges of the mountain, each herd
-huddled in a snow cave sealed shut by a drift. Fly up from the rescue barn in the valley, blow a
-drift open with an avalanche charge (or wear it down with the cannon), set down gently on the
-ledge so the goats can bound aboard, carry up to sixteen at a time back down and land on the pad
-so they can trot into the barn.
+Across twenty-two levels you airlift a whole menagerie home: goats, penguins, puffins, joeys,
+sloths, snow leopard cubs, turtle hatchlings, rover pups on Mars and more, by helicopter, by
+submarine and by shuttle. On the first level, a blizzard has stranded sixty-four mountain goats on
+four ledges of the mountain, each herd huddled in a snow cave sealed shut by a drift. Fly up from
+the rescue barn in the valley, blow a drift open with an avalanche charge (or wear it down with
+the cannon), set down gently on the ledge so the goats can bound aboard, carry up to sixteen at a
+time back down and land on the pad so they can trot into the barn.
 
 The mountain is real terrain, not a backdrop: the chopper can only land on flat ground, any
 rock that touches the fuselage is a crash, and crags rise between the ledges, so every sortie
@@ -26,9 +28,10 @@ aboard is lost in a crash. The mission tally counts every one.
 
 The game gets tougher by laps, not missions: it stays at its easiest until you've flown every
 level in the rotation once, and each full lap after that brings more yetis, quicker eagles,
-ravens, and faster supply drops ("EVERY LEVEL FLOWN -- LAP 2: TOUGHER FROM HERE"). Every 20,000 points earns a
-chopper, and the sky fades through alpenglow to a starry night as a mission wears on. Top-five
-scores with initials are kept in `~/.capricopter_scores`, and the title screen plays an attract
+ravens, and faster supply drops ("EVERY LEVEL FLOWN -- LAP 2: TOUGHER FROM HERE"). Every 20,000
+points earns a chopper, and the sky fades through alpenglow to a starry night as a mission wears
+on. Top-five scores with initials are kept in `~/.menagerie_airlift_scores` (scores from
+`~/.capricopter_scores` carry over the first time it runs), and the title screen plays an attract
 demo. A chip tune plays between missions (M mutes it); in flight you hear the rotor, and goats
 bleat as they climb aboard.
 
@@ -60,20 +63,20 @@ cd -
 ## Play
 
 ```sh
-spin run capricopter
+spin run menagerie_airlift
 ```
 
 Or build first and run the binary directly:
 
 ```sh
 spin build
-./build/bin/capricopter
+./build/bin/menagerie_airlift
 ```
 
 To make a macOS app bundle (needs the sibling `app_bundler` project built):
 
 ```sh
-bin/bundle_app.sh      # -> build/Capricopter.app
+bin/bundle_app.sh      # -> build/Menagerie Airlift.app
 ```
 
 ## Controls
@@ -159,7 +162,7 @@ the newer ones each have a twist.
 
 In season, the title screen starts on a seasonal level and missions rotate through it; out of
 season you can still pick it on the drum (the note under the drum says when its season is --
-"yours just this once"), but missions skip it. `CAPRI_SEASON=1` treats them all as in season,
+"yours just this once"), but missions skip it. `AIRLIFT_SEASON=1` treats them all as in season,
 `=0` none.
 
 Startup paints only the first level's art. The rest are painted in the background a few
@@ -191,24 +194,24 @@ long each call takes.
 
 Laya runs on its own thread and loads in a second or two; until then, or if its weights are
 missing, the scripted AI flies the demo alone. Games you fly yourself are never touched. The weights live in
-the laya checkout next to this one (`sh ../laya/bin/fetch_model.sh`); `CAPRI_LAYA_MODEL=dir`
-points elsewhere, `CAPRI_LAYA=0` turns Laya off, and `LAYA_BACKEND` picks its backend. The first
+the laya checkout next to this one (`sh ../laya/bin/fetch_model.sh`); `AIRLIFT_LAYA_MODEL=dir`
+points elsewhere, `AIRLIFT_LAYA=0` turns Laya off, and `LAYA_BACKEND` picks its backend. The first
 `spin build` asks to build laya's native code: answer `always`, or run `spin trust laya` first.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `bin/capricopter.rb` | Entry point: window, input, frame loop |
-| `lib/capri/config.rb` | Every tunable, plus the mountain: ledges, terrain profile, `ground_y` lookup |
-| `lib/capri/game.rb` | Rules and the fixed-step simulation, screen flow, high scores, demo AI |
-| `lib/capri/canvas.rb` | CPU raster canvas: SDF shapes, shading, noise, text, texture upload |
-| `lib/capri/levels.rb` | The level registry: each level's words, effect colors, terrain profile, water and twist; seasons |
-| `lib/capri/art.rb` | Skies, peaks, clouds, the mountain slices, barn, drifts, chopper, goats, yetis, birds, panel, logo, the Arctic and Cascadia sets, and `LevelArt` (one level's set, painted on demand) |
-| `lib/capri/levels/*_art.rb`, `*_sound.rb` | The other seven levels' art sets and voices |
-| `lib/capri/laya_pilot.rb` | Laya's goal picks for the title demo, on a background thread |
-| `lib/capri/view.rb` | Per-frame drawing, parallax, status panel with the radar profile, overlays |
-| `lib/capri/sound.rb` | Synthesized sound effects (each level's animal and villain voices), rotor drone and chip tune |
+| `bin/menagerie_airlift.rb` | Entry point: window, input, frame loop |
+| `lib/airlift/config.rb` | Every tunable, plus the mountain: ledges, terrain profile, `ground_y` lookup |
+| `lib/airlift/game.rb` | Rules and the fixed-step simulation, screen flow, high scores, demo AI |
+| `lib/airlift/canvas.rb` | CPU raster canvas: SDF shapes, shading, noise, text, texture upload |
+| `lib/airlift/levels.rb` | The level registry: each level's words, effect colors, terrain profile, water and twist; seasons |
+| `lib/airlift/art.rb` | Skies, peaks, clouds, the mountain slices, barn, drifts, chopper, goats, yetis, birds, panel, logo, the Arctic and Cascadia sets, and `LevelArt` (one level's set, painted on demand) |
+| `lib/airlift/levels/*_art.rb`, `*_sound.rb` | The other seven levels' art sets and voices |
+| `lib/airlift/laya_pilot.rb` | Laya's goal picks for the title demo, on a background thread |
+| `lib/airlift/view.rb` | Per-frame drawing, parallax, status panel with the radar profile, overlays |
+| `lib/airlift/sound.rb` | Synthesized sound effects (each level's animal and villain voices), rotor drone and chip tune |
 | `tools/make_icon.rb` | Paints `assets/icons` with the same rasterizer (run `tools/make_icon.sh`) |
 
 To reshape the mountain, edit `MOUNTAIN_LEDGES` and `MOUNTAIN_PTS` in `config.rb` (the other
@@ -222,7 +225,7 @@ checks that nothing goes non-finite, the chopper stays above the ground and insi
 every goat is always accounted for and some actually get rescued. `TRACE=1` prints each crash
 with the AI's state, `SEED=n` flies a different (still repeatable) run, and `MISSION=n`
 starts on mission `n`, and `LEVEL=n` starts the game on level `n` (numbered as in
-`lib/capri/levels.rb`: 0 mountain, 1 Arctic, 2 Cascadia, 3 fjords, 4 bayou, 5 outback, 6 desert,
+`lib/airlift/levels.rb`: 0 mountain, 1 Arctic, 2 Cascadia, 3 fjords, 4 bayou, 5 outback, 6 desert,
 7 Highlands, 8 Halloween, 9 North Pole, 10 moon, 11 volcano, 12 jungle, 13 Himalaya, 14 undersea,
 15 savanna, 16 Mars, 17 Lunar New Year, 18 Valentine's, 19 St Patrick's, 20 Easter, 21 Fourth of
 July). It also counts the twists as they fire (drop bears letting go or shot out of their trees,
@@ -237,17 +240,17 @@ Debug environment variables for the game binary:
 
 | Variable | Effect |
 |---|---|
-| `CAPRI_AUTOPLAY=1` | The demo AI flies a real game |
-| `CAPRI_LAYA=0` | No Laya: the scripted AI flies the title demo alone |
-| `CAPRI_AUTOPILOT=1` | Start with the autopilot option on |
-| `CAPRI_PANEL=0` | Start with Laya's panel hidden |
-| `CAPRI_LAYA_MODEL=dir` | Laya weights directory (default `../laya/models/laya-multilingual`) |
-| `CAPRI_SHOT=/path.png` | Save frame `CAPRI_SHOT_FRAME` (default 240), read back from the renderer, then quit |
-| `CAPRI_MISSION=n` | Start a game on mission `n` (missions cycle through the levels) |
-| `CAPRI_LEVEL=n` | Pick level `n` (as for `LEVEL` above) on the title screen |
-| `CAPRI_SEASON=1` or `=0` | Treat the seasonal levels as in season, or out |
-| `CAPRI_MUTE=1` or `=0` | Mute every sound and the music (screenshot runs with `CAPRI_SHOT` are muted unless `=0`) |
-| `CAPRI_SCREEN=results\|bonus\|dead\|game_over\|entry` | Jump straight to that screen |
+| `AIRLIFT_AUTOPLAY=1` | The demo AI flies a real game |
+| `AIRLIFT_LAYA=0` | No Laya: the scripted AI flies the title demo alone |
+| `AIRLIFT_AUTOPILOT=1` | Start with the autopilot option on |
+| `AIRLIFT_PANEL=0` | Start with Laya's panel hidden |
+| `AIRLIFT_LAYA_MODEL=dir` | Laya weights directory (default `../laya/models/laya-multilingual`) |
+| `AIRLIFT_SHOT=/path.png` | Save frame `AIRLIFT_SHOT_FRAME` (default 240), read back from the renderer, then quit |
+| `AIRLIFT_MISSION=n` | Start a game on mission `n` (missions cycle through the levels) |
+| `AIRLIFT_LEVEL=n` | Pick level `n` (as for `LEVEL` above) on the title screen |
+| `AIRLIFT_SEASON=1` or `=0` | Treat the seasonal levels as in season, or out |
+| `AIRLIFT_MUTE=1` or `=0` | Mute every sound and the music (screenshot runs with `AIRLIFT_SHOT` are muted unless `=0`) |
+| `AIRLIFT_SCREEN=results\|bonus\|dead\|game_over\|entry` | Jump straight to that screen |
 
-The SDL log is written to `/tmp/sdl_capricopter.log`, including how long each piece of art took
+The SDL log is written to `/tmp/sdl_menagerie_airlift.log`, including how long each piece of art took
 to generate.

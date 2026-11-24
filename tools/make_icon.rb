@@ -3,8 +3,8 @@
 # its rotor blur and a mountain goat bleating up at it from a ledge, cut to a macOS squircle with the
 # standard 10% margin. Writes a 1024x1024 TGA; see tools/make_icon.sh for
 # the PNG / .icns conversion.
-require_relative "../lib/capri/config"
-require_relative "../lib/capri/canvas"
+require_relative "../lib/airlift/config"
+require_relative "../lib/airlift/canvas"
 
 SIZE   = 1024
 MARGIN = 100.0
