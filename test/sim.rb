@@ -3,8 +3,8 @@
 # the world, every goat is always accounted for, and some actually
 # get rescued. Run with: spinel test/sim.rb -o build/sim && ./build/sim
 # (SEED=n flies a different repeatable run).
-require_relative "../lib/capri/config"
-require_relative "../lib/capri/game"
+require_relative "../lib/airlift/config"
+require_relative "../lib/airlift/game"
 
 def finite?(v)
   v == v && v.abs < 1.0e9
@@ -12,11 +12,10 @@ end
 
 game = Game.new
 game.reseed(ENV["SEED"].to_i) if ENV["SEED"] != nil
-# LEVEL=n picks level n (0 the mountain, 1 the arctic, 2 Cascadia) as the
-# first, as on the title screen.
+# LEVEL=n picks level n (lib/airlift/levels.rb) as the first, as on the
+# title screen.
 if ENV["LEVEL"] != nil
-  n = ENV["LEVEL"].to_i
-  n.times { game.pick_level(1) }
+  game.set_start_level(ENV["LEVEL"].to_i)
 end
 game.new_game
 # MISSION=n starts on mission n (missions alternate between the two levels).
@@ -32,11 +31,21 @@ last_mission = game.mission
 reported = false
 counted = false
 reasons = {}
+twists = {}
 bonus_told = false
 crates_caught = 0
 crates_dropped = 0
 while steps < max_steps && game.screen != :game_over && game.screen != :entry
   game.update(STEP_MS)
+  if ENV["TRACE"] != nil
+    game.sounds.each do |e|
+      next unless e == :bear_drop
+      c = game.chopper
+      puts "  bear_drop state #{game.ai_state} at x #{c.x.round} alt #{(ground_y(c.x) - c.skid_y).round} vy #{c.vy.round(2)} landed #{c.landed} t=#{(steps * STEP_MS / 1000.0).round}s"
+    end
+  end
+  game.sounds.each { |e| twists[e] = (twists[e] || 0) + 1 if e == :bear_drop || e == :bear_shot || e == :yeti_off || e == :yeti_charged || e == :devil || e == :splash || e == :troll_wake ||
+                                                     e == :tremor || e == :lava || e == :vines || e == :stampede || e == :storm || e == :firework || e == :pop || e == :stun }
   game.sounds.clear
   c = game.chopper
   unless finite?(c.x) && finite?(c.y) && finite?(c.vx) && finite?(c.vy)
@@ -73,8 +82,9 @@ while steps < max_steps && game.screen != :game_over && game.screen != :entry
     if ENV["TRACE"] != nil
       c = game.chopper
       near = 1.0e9
-      game.yetis.each { |tk| d = (tk[:x] - c.x).abs; near = d if d < near }
-      puts "  crash #{game.crash_reason} state #{game.ai_state} at x #{c.x.round} alt #{(ground_y(c.x) - c.skid_y).round} landed #{c.landed} yeti #{near.round} aboard #{c.aboard} t=#{(steps * STEP_MS / 1000.0).round}s"
+      above = 0.0
+      game.yetis.each { |tk| d = (tk[:x] - c.x).abs; if d < near; near = d; above = ground_y(tk[:x]) - 22.0 - c.y; end }
+      puts "  crash #{game.crash_reason} state #{game.ai_state} at x #{c.x.round} alt #{(ground_y(c.x) - c.skid_y).round} landed #{c.landed} yeti #{near.round} up #{above.round} vy #{c.vy.round(1)} goats_near #{game.ai_free_goats_near(c.x, BOMB_BLAST + 100.0)[0]} aboard #{c.aboard} t=#{(steps * STEP_MS / 1000.0).round}s"
     end
   end
   counted = false if game.screen != :dead
@@ -106,5 +116,6 @@ elsif missions > 0
   failures += 1
 end
 reasons.each { |k, v| puts "  crash #{k}: #{v}" }
+twists.each { |k, v| puts "  twist #{k}: #{v}" }
 game.goat_losses.each { |k, v| puts "  goats lost to #{k}: #{v}" }
 puts failures == 0 ? "OK" : "#{failures} FAILURES"

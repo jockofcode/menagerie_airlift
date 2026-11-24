@@ -1,7 +1,7 @@
 #!/bin/sh
 # Bundles this project's built binary into a macOS .app via app_bundler
 # (https://github.com/jockofcode/app_bundler, a sibling project in this
-# workspace). Produces build/Capricopter.app, ad-hoc signed so it launches
+# workspace). Produces build/Menagerie Airlift.app, ad-hoc signed so it launches
 # without a Gatekeeper prompt.
 #
 # Usage: bin/bundle_app.sh [OUTPUT_DIR]   (default OUTPUT_DIR: build)
@@ -23,12 +23,12 @@ if [ ! -x "$APP_BUNDLER" ]; then
 fi
 
 cd "$PROJECT_DIR"
-spin build capricopter
+spin build menagerie_airlift
 
 "$APP_BUNDLER" \
-  --executable="$PROJECT_DIR/build/bin/capricopter" \
-  --name="Capricopter" \
-  --identifier=com.example.capricopter \
+  --executable="$PROJECT_DIR/build/bin/menagerie_airlift" \
+  --name="Menagerie Airlift" \
+  --identifier=com.example.menagerie-airlift \
   --icon="$PROJECT_DIR/assets/icons/icon.icns" \
   --output="$OUTPUT_DIR" \
   --sign=- \
