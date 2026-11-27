@@ -2,10 +2,10 @@
 
 ![Menagerie Airlift](assets/screenshots/Menagerie-Airlift.png)
 
-A side-scrolling animal-rescue game, a fork of [Choplifter](../choplifter) built with
-[Spinel](https://github.com/matz/spinel) and [sdl](https://github.com/jockofcode/sdl). All artwork
-and sound is generated procedurally at startup; the only asset file is the app icon, which is
-painted by the same code. It was called Capricopter while it was only about goats.
+A side-scrolling animal-rescue game built with [Spinel](https://github.com/matz/spinel) and
+[sdl](https://github.com/jockofcode/sdl). All artwork and sound is generated procedurally at
+startup; the only asset file is the app icon, which is painted by the same code. It was called
+Capricopter while it was only about goats.
 
 Across twenty-two levels you airlift a whole menagerie home: goats, penguins, puffins, joeys,
 sloths, snow leopard cubs, turtle hatchlings, rover pups on Mars and more, by helicopter, by
@@ -79,6 +79,9 @@ To make a macOS app bundle (needs the sibling `app_bundler` project built):
 bin/bundle_app.sh      # -> build/Menagerie Airlift.app
 ```
 
+That is the default build, which needs nothing beyond `spin.toml`. For the build with Laya
+picking the autopilot's goals, see [Laya (optional)](#laya-optional).
+
 ## Controls
 
 | Key | Action |
@@ -91,7 +94,7 @@ bin/bundle_app.sh      # -> build/Menagerie Airlift.app
 | P | Pause |
 | M | Music on / off |
 | Tab | Autopilot on / off: the AI flies for you (also Y on a gamepad, or the pause menu) |
-| L | Laya's decision panel shown / hidden while the autopilot is on (also the pause menu) |
+| L | The pilot panel shown / hidden while the autopilot is on (also the pause menu) |
 | R | Back to the title screen |
 | Esc | Pause menu: resume, autopilot on / off, panel on / off, or quit |
 | Q | Quit immediately |
@@ -177,14 +180,25 @@ Action shots of every level are in [`assets/screenshots/action/`](assets/screens
 Tab (Y on a gamepad, or AUTOPILOT in the pause menu) hands the stick to the same AI that flies the
 title demo, and Tab again takes it back, mid-flight if you like. While it flies, an AUTOPILOT tag
 shows at the top right and your stick and buttons are ignored. The setting carries over to the
-next game. Laya's decision panel (below) only appears while the autopilot option is on, and L (or PANEL in
-the pause menu) hides it while the autopilot keeps flying: beside
-the high scores on the title screen, and in the top left while the autopilot flies a game, where
-Laya picks its goals as it does for the demo.
+next game. The pilot panel only appears while the autopilot option is on, and L (or PANEL in the
+pause menu) hides it while the autopilot keeps flying: beside the high scores on the title screen,
+and in the top left while the autopilot flies a game. In the default build it reads SCRIPTED
+PILOT and lights the goal the AI is flying; in the Laya build it shows Laya's odds (below).
 
-## Laya on the title screen
+## Laya (optional)
 
-The attract demo is piloted with help from [Laya](../laya), a small on-device decision model.
+The default build flies the title demo and the autopilot with the game's own scripted AI. A second
+build, in `with_laya/`, has them piloted with help from [Laya](https://github.com/jockofcode/laya),
+a small on-device decision model. `spin` fetches Laya from GitHub; the build runs from its own
+folder, and Laya's weights (about 1 GB, once) come down with a script beside it:
+
+```sh
+cd with_laya
+spin build                          # -> with_laya/build/bin/menagerie_airlift
+sh fetch_model.sh                   # weights into laya/models/ at the project root
+./build/bin/menagerie_airlift
+```
+
 Every time the demo chopper picks what to do next, Laya chooses between **LAND** (pick up waiting
 goats), **BLAST** (charge a snow drift open) and **HOME** (fly back and unload); the scripted AI
 then flies that goal, dodging and fighting as usual. The AI tells Laya which goals are possible
@@ -193,23 +207,27 @@ A panel beside the high scores shows Laya's odds for each goal, the goal being f
 long each call takes.
 
 Laya runs on its own thread and loads in a second or two; until then, or if its weights are
-missing, the scripted AI flies the demo alone. Games you fly yourself are never touched. The weights live in
-the laya checkout next to this one (`sh ../laya/bin/fetch_model.sh`); `AIRLIFT_LAYA_MODEL=dir`
-points elsewhere, `AIRLIFT_LAYA=0` turns Laya off, and `LAYA_BACKEND` picks its backend. The first
-`spin build` asks to build laya's native code: answer `always`, or run `spin trust laya` first.
+missing, the scripted AI flies alone. Games you fly yourself are never touched. The game finds the
+weights in `laya/models/laya-multilingual` at the project root (where `fetch_model.sh` puts them),
+or in a Laya checkout beside the project; `AIRLIFT_LAYA_MODEL=dir` points elsewhere,
+`AIRLIFT_LAYA=0` turns Laya off, and `LAYA_BACKEND` picks its backend. The first `spin build` asks
+to build laya's native code: answer `always`, or run `spin trust laya` first.
 
 ## Layout
 
 | Path | What it is |
 |---|---|
-| `bin/menagerie_airlift.rb` | Entry point: window, input, frame loop |
+| `bin/menagerie_airlift.rb` | Entry point of the default build (the scripted pilot) |
+| `with_laya/` | The Laya build: its own `spin.toml` and entry point, sharing `lib/` |
+| `lib/airlift/main.rb` | The main program both builds share: window, input, frame loop |
 | `lib/airlift/config.rb` | Every tunable, plus the mountain: ledges, terrain profile, `ground_y` lookup |
 | `lib/airlift/game.rb` | Rules and the fixed-step simulation, screen flow, high scores, demo AI |
 | `lib/airlift/canvas.rb` | CPU raster canvas: SDF shapes, shading, noise, text, texture upload |
 | `lib/airlift/levels.rb` | The level registry: each level's words, effect colors, terrain profile, water and twist; seasons |
 | `lib/airlift/art.rb` | Skies, peaks, clouds, the mountain slices, barn, drifts, chopper, goats, yetis, birds, panel, logo, the Arctic and Cascadia sets, and `LevelArt` (one level's set, painted on demand) |
-| `lib/airlift/levels/*_art.rb`, `*_sound.rb` | The other seven levels' art sets and voices |
-| `lib/airlift/laya_pilot.rb` | Laya's goal picks for the title demo, on a background thread |
+| `lib/airlift/levels/*_art.rb`, `*_sound.rb` | The other levels' art sets and voices |
+| `lib/airlift/scripted_pilot.rb` | The default build's pilot: leaves every goal to the scripted AI |
+| `lib/airlift/laya_pilot.rb` | The Laya build's pilot: Laya's goal picks, on a background thread |
 | `lib/airlift/view.rb` | Per-frame drawing, parallax, status panel with the radar profile, overlays |
 | `lib/airlift/sound.rb` | Synthesized sound effects (each level's animal and villain voices), rotor drone and chip tune |
 | `tools/make_icon.rb` | Paints `assets/icons` with the same rasterizer (run `tools/make_icon.sh`) |
@@ -241,10 +259,10 @@ Debug environment variables for the game binary:
 | Variable | Effect |
 |---|---|
 | `AIRLIFT_AUTOPLAY=1` | The demo AI flies a real game |
-| `AIRLIFT_LAYA=0` | No Laya: the scripted AI flies the title demo alone |
+| `AIRLIFT_LAYA=0` | Laya build only: skip Laya, so the scripted AI flies alone |
 | `AIRLIFT_AUTOPILOT=1` | Start with the autopilot option on |
-| `AIRLIFT_PANEL=0` | Start with Laya's panel hidden |
-| `AIRLIFT_LAYA_MODEL=dir` | Laya weights directory (default `../laya/models/laya-multilingual`) |
+| `AIRLIFT_PANEL=0` | Start with the pilot panel hidden |
+| `AIRLIFT_LAYA_MODEL=dir` | Laya build only: weights directory (default `laya/models/laya-multilingual`) |
 | `AIRLIFT_SHOT=/path.png` | Save frame `AIRLIFT_SHOT_FRAME` (default 240), read back from the renderer, then quit |
 | `AIRLIFT_MISSION=n` | Start a game on mission `n` (missions cycle through the levels) |
 | `AIRLIFT_LEVEL=n` | Pick level `n` (as for `LEVEL` above) on the title screen |

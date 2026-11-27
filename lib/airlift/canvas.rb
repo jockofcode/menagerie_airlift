@@ -877,17 +877,13 @@ class Canvas
   # Bakes `text` into the canvas; (x, y) is the top-left of the glyph box
   # unless align is :center (x is the center) or :right.
   def text(font, str, x, y, r, g, b, a, align)
-    surface = LibSDL.sdl_ttf_render_text_blended(font.ptr, str, 255, 255, 255, 255)
+    surface = font.render(str)
     return if surface == nil
-    sw = LibSDL.sdl_surface_width(surface)
-    sh = LibSDL.sdl_surface_height(surface)
+    sw = surface.width
+    sh = surface.height
     ox = x
     ox = x - sw / 2 if align == :center
     ox = x - sw if align == :right
-    br = IO::Buffer.new(1)
-    bg = IO::Buffer.new(1)
-    bb = IO::Buffer.new(1)
-    ba = IO::Buffer.new(1)
     yy = 0
     while yy < sh
       xx = 0
@@ -895,15 +891,14 @@ class Canvas
         tx = ox + xx
         ty = y + yy
         if tx >= 0 && tx < @w && ty >= 0 && ty < @h
-          ChopFFI.SDL_ReadSurfacePixel(surface, xx, yy, br, bg, bb, ba)
-          al = ba.get_value(:U8, 0) / 255.0
+          al = surface.alpha(xx, yy) / 255.0
           blend(ty * @w + tx, r, g, b, a * al) if al > 0.0
         end
         xx += 1
       end
       yy += 1
     end
-    LibSDL.SDL_DestroySurface(surface)
+    surface.close
   end
 
   # Text with a soft dark drop shadow underneath, for decals on busy art.
@@ -972,10 +967,6 @@ class Canvas
       buf.set_value(:U8, off + 3, (@a[i] * 255.0 + 0.5).to_i)
       i += 1
     end
-    ptr = ChopFFI.SDL_CreateTexture(renderer.ptr, ChopFFI::PIXELFORMAT_RGBA32, ChopFFI::TEXTUREACCESS_STATIC, @w, @h)
-    ChopFFI.SDL_UpdateTexture(ptr, nil, buf, @w * 4)
-    ChopFFI.SDL_SetTextureBlendMode(ptr, ChopFFI::BLENDMODE_BLEND)
-    ChopFFI.SDL_SetTextureScaleMode(ptr, linear ? ChopFFI::SCALEMODE_LINEAR : ChopFFI::SCALEMODE_NEAREST)
-    SDL::Texture.new(ptr)
+    SDL::Texture.from_pixels(renderer, @w, @h, buf, smooth: linear)
   end
 end
