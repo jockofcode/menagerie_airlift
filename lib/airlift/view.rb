@@ -23,7 +23,7 @@ class View
     @font_pop   = SDL::Font.bundled(SDL::Fonts::VT323_NAME, 20)
     @font_pop2  = SDL::Font.bundled(SDL::Fonts::VT323_NAME, 28)
     @font_small = SDL::Font.bundled(SDL::Fonts::PUBLIC_SANS_NAME, 12)
-    ChopFFI.SDL_SetRenderDrawBlendMode(@r.ptr, ChopFFI::BLENDMODE_BLEND)
+    @r.blend_mode = :blend
   end
 
   def close
@@ -126,19 +126,14 @@ class View
   # ---- Frame ----
 
   # menu: the SDL::PauseMenu, drawn last so it sits over everything.
-  # pilot: the LayaPilot, whose thinking the title screen shows.
+  # pilot: the ScriptedPilot or LayaPilot, whose thinking the panel shows.
   # AIRLIFT_SHOT: the frame is read back from the renderer before it is
   # presented (so it works with the window covered or the screen locked)
   # and saved as a PNG.
   attr_accessor :shot_path
 
   def capture
-    surf = ChopFFI.SDL_RenderReadPixels(@r.ptr, nil)
-    bmp = @shot_path + ".bmp"
-    ChopFFI.SDL_SaveBMP(surf, bmp)
-    ChopFFI.SDL_DestroySurface(surf)
-    system("sips -s format png #{bmp} --out #{@shot_path} >/dev/null 2>&1")
-    File.delete(bmp)
+    @r.save_screenshot(@shot_path)
     @shot_path = ""
   end
 
@@ -1030,7 +1025,7 @@ class View
     @r.draw_color(0, 0, 0, 120)
     @r.fill_rect(x - 12, y - 8, 290, 170)
     lit = pilot.laya?
-    shadowed(@font_hud, "LAYA PILOT", x, y, lit ? 140 : 170, lit ? 220 : 170, lit ? 255 : 180, :left)
+    shadowed(@font_hud, pilot.title, x, y, lit ? 140 : 170, lit ? 220 : 170, lit ? 255 : 180, :left)
     text(@font_pop, pilot.status_line, x, y + 28, 200, 200, 210, 255, :left)
     i = 0
     while i < GOAL_LABELS.length

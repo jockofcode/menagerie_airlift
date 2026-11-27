@@ -1,5 +1,6 @@
 require "laya"
 require "laya/worker"
+require_relative "pilot_goals"
 
 # The title-screen demo's strategist: Laya picks what the chopper goes after
 # next (land by waiting goats, blast a snow drift open, or fly home and
@@ -15,8 +16,6 @@ require "laya/worker"
 # Until the weights are loaded, or when they are missing (AIRLIFT_LAYA=0
 # skips them; AIRLIFT_LAYA_MODEL points at them), the AI's own picks fly.
 
-GOAL_LABELS       = ["LAND", "BLAST", "HOME"]
-GOAL_SYMBOLS      = [:land, :bomb, :home]
 GOAL_INSTRUCTIONS = "Choose the best safe move toward the target."
 GOAL_ASK_MS       = 800.0
 
@@ -48,6 +47,10 @@ class LayaPilot
 
   def laya?
     @worker.ready?
+  end
+
+  def title
+    "LAYA PILOT"
   end
 
   # The panel line under "LAYA PILOT" on the title screen.

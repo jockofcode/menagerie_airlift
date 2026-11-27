@@ -5,7 +5,4 @@
 
 [dependencies]
 sdl = { git = "https://github.com/jockofcode/sdl" }
-# Laya picks the title demo's goals (lib/airlift/laya_pilot.rb). The weights
-# live in the laya checkout (../laya/bin/fetch_model.sh); without them the
-# demo falls back to the scripted AI.
-laya = { path = "../laya" }
+# Laya is optional: the with_laya/ folder builds the game with it.

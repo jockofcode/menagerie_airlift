@@ -1,6 +1,7 @@
 # Build output: game binary, soak-test and icon-tool binaries, .app bundle,
 # intermediate icon.tga / icon.iconset
 /build/
+/with_laya/build/
 spin.lock
 
 # Stray captures from AIRLIFT_SHOT or make_icon.rb run outside build/
@@ -21,3 +22,6 @@ spin.lock
 
 # Scratch builds and test captures
 /tmp/
+
+# Laya's weights for the Laya build (with_laya/fetch_model.sh)
+/laya/

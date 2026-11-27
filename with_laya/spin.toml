@@ -1,0 +1,13 @@
+# The Laya build of Menagerie Airlift: the same game, with Laya (a small
+# on-device decision model, https://github.com/jockofcode/laya) picking the
+# title demo's and the autopilot's goals. Build from this folder:
+#
+#   cd with_laya && spin build      # -> with_laya/build/bin/menagerie_airlift
+#   sh fetch_model.sh               # Laya's weights, once (about 1 GB)
+#
+# Without the weights the scripted AI flies. The default build (spin build
+# at the project root) needs none of this.
+
+[dependencies]
+sdl = { git = "https://github.com/jockofcode/sdl" }
+laya = { git = "https://github.com/jockofcode/laya" }
